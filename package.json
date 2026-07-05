@@ -1,0 +1,17 @@
+{
+  "name": "vector-strike-omni",
+  "version": "0.1.0",
+  "description": "VECTOR STRIKE: OMNI — Rust + Lua + Go + Puter.js air-to-air combat game",
+  "private": true,
+  "scripts": {
+    "build:wasm": "wasm-pack build --target web --out-dir pkg",
+    "build:wasm:release": "wasm-pack build --target web --out-dir pkg --release",
+    "build:go": "cd server && go build -o ../vector_server .",
+    "start:go": "cd server && go run .",
+    "start": "python -m http.server 8765",
+    "dev": "concurrently \"npm run start:go\" \"npm run start\"",
+    "lint:lua": "luacheck scripts/"
+  },
+  "keywords": ["rust", "wasm", "webgpu", "game", "multiplayer", "puter"],
+  "license": "MIT"
+}

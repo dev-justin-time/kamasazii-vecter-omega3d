@@ -1,0 +1,392 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   VECTOR STRIKE: OMNI — Cyberpunk Wireframe Aesthetic
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+*,
+*::before,
+*::after {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --neon-cyan: #00f0ff;
+    --neon-magenta: #ff00e6;
+    --neon-orange: #ff6a00;
+    --neon-green: #00ff66;
+    --bg-deep: #05050a;
+    --bg-panel: rgba(0, 10, 30, 0.85);
+    --grid-color: rgba(0, 240, 255, 0.08);
+    --text-primary: #d0e8ff;
+    --text-dim: #607080;
+    --danger: #ff2040;
+    --success: #00ff88;
+    --warning: #ffaa00;
+    --border-glow: 0 0 10px rgba(0, 240, 255, 0.3);
+}
+
+@font-face {
+    font-family: 'JetBrains Mono';
+    src: url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap');
+}
+
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace;
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+}
+
+/* ─── Canvas ─────────────────────────────────────────────────────────────── */
+
+#gameCanvas {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: block;
+    z-index: 0;
+}
+
+/* ─── HUD Overlay ────────────────────────────────────────────────────────── */
+
+#hud {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+/* Top-left: Ship status */
+#ship-status {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    border-radius: 4px;
+    padding: 12px 16px;
+    min-width: 200px;
+    backdrop-filter: blur(8px);
+}
+
+.stat-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 2px 0;
+}
+
+.stat-label {
+    color: var(--text-dim);
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.stat-value {
+    color: var(--neon-cyan);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.stat-bar {
+    width: 100%;
+    height: 3px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 2px;
+    margin: 4px 0;
+    overflow: hidden;
+}
+
+.stat-bar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.1s ease;
+}
+
+.stat-bar-fill.health { background: var(--danger); }
+.stat-bar-fill.energy { background: var(--neon-cyan); }
+.stat-bar-fill.heat   { background: var(--neon-orange); }
+
+/* Top-right: Mission / AI */
+#mission-briefing {
+    position: absolute;
+    top: 20px;
+    right: 20px;
+    background: var(--bg-panel);
+    border: 1px solid rgba(255, 0, 230, 0.2);
+    border-radius: 4px;
+    padding: 12px 16px;
+    max-width: 320px;
+    backdrop-filter: blur(8px);
+}
+
+#mission-briefing .title {
+    color: var(--neon-magenta);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+}
+
+#mission-briefing .text {
+    color: var(--text-primary);
+    font-size: 12px;
+    line-height: 1.6;
+    opacity: 0.9;
+}
+
+/* Bottom-left: Score / Kill feed */
+#score-display {
+    position: absolute;
+    bottom: 20px;
+    left: 20px;
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 255, 102, 0.2);
+    border-radius: 4px;
+    padding: 8px 14px;
+    backdrop-filter: blur(8px);
+}
+
+#score-display .score-value {
+    color: var(--neon-green);
+    font-size: 24px;
+    font-weight: 700;
+}
+
+#score-display .score-label {
+    color: var(--text-dim);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+/* Bottom-center: Weapon / Status messages */
+#weapon-display {
+    position: absolute;
+    bottom: 60px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    border-radius: 4px;
+    padding: 6px 16px;
+    backdrop-filter: blur(8px);
+    text-align: center;
+}
+
+#weapon-display .weapon-name {
+    color: var(--neon-cyan);
+    font-size: 13px;
+    font-weight: 600;
+}
+
+#weapon-display .weapon-status {
+    color: var(--text-dim);
+    font-size: 10px;
+    letter-spacing: 0.5px;
+}
+
+/* Bottom-right: Network / Puter status */
+#network-status {
+    position: absolute;
+    bottom: 20px;
+    right: 20px;
+    font-size: 10px;
+    color: var(--text-dim);
+    text-align: right;
+    letter-spacing: 0.5px;
+}
+
+#network-status .status-dot {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    margin-right: 6px;
+    animation: pulse-dot 2s ease-in-out infinite;
+}
+
+.status-dot.connected { background: var(--neon-green); }
+.status-dot.disconnected { background: var(--danger); }
+.status-dot.connecting { background: var(--warning); }
+
+/* ─── Briefing Overlay (pre-game) ────────────────────────────────────────── */
+
+#briefing-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(5, 5, 10, 0.92);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    backdrop-filter: blur(16px);
+    transition: opacity 0.5s ease;
+}
+
+#briefing-overlay.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+#briefing-overlay h1 {
+    font-size: 36px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    text-transform: uppercase;
+}
+
+#briefing-overlay h1 .cyan { color: var(--neon-cyan); }
+#briefing-overlay h1 .magenta { color: var(--neon-magenta); }
+#briefing-overlay h1 .orange { color: var(--neon-orange); }
+
+#briefing-overlay .subtitle {
+    color: var(--text-dim);
+    font-size: 13px;
+    letter-spacing: 3px;
+    margin-top: 8px;
+    text-transform: uppercase;
+}
+
+#briefing-overlay .briefing-text {
+    max-width: 600px;
+    margin: 30px 0;
+    padding: 20px;
+    border-left: 2px solid var(--neon-magenta);
+    background: rgba(0, 10, 30, 0.5);
+    border-radius: 0 4px 4px 0;
+    font-size: 13px;
+    line-height: 1.8;
+    color: var(--text-primary);
+    opacity: 0.9;
+}
+
+#briefing-overlay .enter-btn {
+    pointer-events: all;
+    background: transparent;
+    border: 1px solid var(--neon-cyan);
+    color: var(--neon-cyan);
+    padding: 12px 40px;
+    font-family: inherit;
+    font-size: 14px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: var(--border-glow);
+}
+
+#briefing-overlay .enter-btn:hover {
+    background: rgba(0, 240, 255, 0.1);
+    box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
+}
+
+/* ─── Grid Background (CSS fallback) ─────────────────────────────────────── */
+
+#css-grid {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+    background-image:
+        linear-gradient(var(--grid-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 60px 60px;
+}
+
+/* ─── Responsive ─────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+    #ship-status { top: 10px; left: 10px; min-width: 140px; padding: 8px 12px; }
+    #mission-briefing { top: 10px; right: 10px; max-width: 200px; padding: 8px 12px; }
+    #score-display { bottom: 10px; left: 10px; padding: 6px 10px; }
+    #score-display .score-value { font-size: 18px; }
+    #weapon-display { bottom: 40px; }
+    #briefing-overlay h1 { font-size: 24px; }
+}
+
+/* ─── Animations ─────────────────────────────────────────────────────────── */
+
+@keyframes pulse-dot {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.4; }
+}
+
+@keyframes scan-line {
+    0% { transform: translateY(-100%); }
+    100% { transform: translateY(100vh); }
+}
+
+.scanline {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.03), transparent);
+    z-index: 2;
+    pointer-events: none;
+    animation: scan-line 4s linear infinite;
+}
+
+/* ─── Loading Screen ─────────────────────────────────────────────────────── */
+
+#loading-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: var(--bg-deep);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+    transition: opacity 0.6s ease;
+}
+
+#loading-screen.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+.loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 2px solid rgba(0, 240, 255, 0.1);
+    border-top-color: var(--neon-cyan);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 20px;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+.loading-text {
+    color: var(--text-dim);
+    font-size: 12px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+}

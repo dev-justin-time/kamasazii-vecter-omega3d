@@ -1,0 +1,724 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VECTOR STRIKE: OMNI</title>
+
+    <!-- Puter.js SDK (Cloud, AI, Storage, Auth) -->
+    <script src="https://js.puter.com/v2/"></script>
+
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='28' font-size='28'%3E⚡%3C/text%3E%3C/svg%3E">
+</head>
+<body>
+    <!-- ═══ Loading Screen ═══ -->
+    <div id="loading-screen">
+        <div class="loading-spinner"></div>
+        <div class="loading-text">Initializing Vector Core...</div>
+    </div>
+
+    <!-- ═══ Pre-Game Briefing Overlay ═══ -->
+    <div id="briefing-overlay">
+        <h1>
+            <span class="cyan">VECTOR</span>
+            <span class="magenta">STRIKE</span>
+            <span class="orange">: OMNI</span>
+        </h1>
+        <div class="subtitle">Air Superiority — Sector Omega</div>
+        <div class="briefing-text" id="briefing-text">
+            Connecting to Puter AI to generate mission parameters...
+        </div>
+        <button class="enter-btn" id="enter-btn" disabled>INITIALIZING...</button>
+    </div>
+
+    <!-- ═══ CSS Grid Fallback ═══ -->
+    <div id="css-grid"></div>
+
+    <!-- ═══ Scanline Effect ═══ -->
+    <div class="scanline"></div>
+
+    <!-- ═══ WebGL Canvas ═══ -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- ═══ HUD Overlay ═══ -->
+    <div id="hud">
+        <!-- Ship Status (Top-Left) -->
+        <div id="ship-status">
+            <div class="stat-row">
+                <span class="stat-label">SYS::OMEGA</span>
+                <span class="stat-value" id="fps-display">-- FPS</span>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">HEALTH</span>
+                <span class="stat-value" id="health-value">100</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill health" id="health-bar" style="width: 100%"></div>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">ENERGY</span>
+                <span class="stat-value" id="energy-value">100</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill energy" id="energy-bar" style="width: 100%"></div>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">HEAT</span>
+                <span class="stat-value" id="heat-value">0</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill heat" id="heat-bar" style="width: 0%"></div>
+            </div>
+            <div class="stat-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(0,240,255,0.1);">
+                <span class="stat-label">GLITCH DRIVE</span>
+                <span class="stat-value" id="glitch-status" style="color: var(--text-dim)">STANDBY</span>
+            </div>
+        </div>
+
+        <!-- Mission Briefing (Top-Right) -->
+        <div id="mission-briefing">
+            <div class="title">// MISSION BRIEFING</div>
+            <div class="text" id="mission-text">
+                Awaiting AI-generated mission parameters...
+            </div>
+        </div>
+
+        <!-- Score (Bottom-Left) -->
+        <div id="score-display">
+            <div class="score-label">SCORE</div>
+            <div class="score-value" id="score-value">0</div>
+        </div>
+
+        <!-- Weapon Display (Bottom-Center) -->
+        <div id="weapon-display">
+            <div class="weapon-name" id="weapon-name">PLASMA BOLT</div>
+            <div class="weapon-status" id="weapon-status">READY | Energy: 100%</div>
+        </div>
+
+        <!-- Network Status (Bottom-Right) -->
+        <div id="network-status">
+            <div><span class="status-dot disconnected" id="ws-dot"></span><span id="ws-status">DISCONNECTED</span></div>
+            <div style="margin-top: 4px;">
+                <span class="status-dot disconnected" id="puter-dot"></span>
+                <span id="puter-status">PUTER: OFFLINE</span>
+            </div>
+            <div style="margin-top: 4px; color: var(--neon-cyan); font-size: 9px;">
+                <span id="engine-version">v0.1.0</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══ Wasm + JS Engine ═══ -->
+    <script type="module">
+        // ─── Configuration ────────────────────────────────────────────────
+        const CONFIG = {
+            wsUrl: `ws://${location.hostname}:8080/ws`,
+            useWasm: false,         // Set true when wasm-pack build is complete
+            usePuter: true,
+            useWebGL: true,
+            playerName: `pilot_${Math.random().toString(36).slice(2, 8)}`,
+        };
+
+        // ─── DOM References ──────────────────────────────────────────────
+        const $ = (id) => document.getElementById(id);
+        const canvas = $('gameCanvas');
+        const gl = canvas.getContext('webgl2', { alpha: false });
+
+        const elements = {
+            loading: $('loading-screen'),
+            briefing: $('briefing-overlay'),
+            briefingText: $('briefing-text'),
+            enterBtn: $('enter-btn'),
+            fps: $('fps-display'),
+            healthVal: $('health-value'),
+            healthBar: $('health-bar'),
+            energyVal: $('energy-value'),
+            energyBar: $('energy-bar'),
+            heatVal: $('heat-value'),
+            heatBar: $('heat-bar'),
+            glitchStatus: $('glitch-status'),
+            missionText: $('mission-text'),
+            scoreVal: $('score-value'),
+            weaponName: $('weapon-name'),
+            weaponStatus: $('weapon-status'),
+            wsDot: $('ws-dot'),
+            wsStatus: $('ws-status'),
+            puterDot: $('puter-dot'),
+            puterStatus: $('puter-status'),
+            engineVer: $('engine-version'),
+        };
+
+        // ─── Game State ──────────────────────────────────────────────────
+        const state = {
+            fps: 0,
+            frameCount: 0,
+            lastFpsUpdate: performance.now(),
+            score: 0,
+            health: 100,
+            energy: 100,
+            heat: 0,
+            glitchReady: true,
+            weapon: 'plasma_bolt',
+            running: false,
+            ws: null,
+            puterReady: false,
+        };
+
+        // ─── WebGL Wireframe Renderer ────────────────────────────────────
+
+        function initWebGL() {
+            if (!gl) {
+                console.warn('[WEBGL] WebGL2 not supported — using fallback');
+                return false;
+            }
+
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+
+            // Compile wireframe shaders
+            const vsSrc = `#version 300 es
+                in vec3 aPosition;
+                in vec3 aColor;
+                uniform mat4 uMVP;
+                out vec3 vColor;
+                void main() {
+                    gl_Position = uMVP * vec4(aPosition, 1.0);
+                    vColor = aColor;
+                    gl_PointSize = 2.0;
+                }
+            `;
+
+            const fsSrc = `#version 300 es
+                precision highp float;
+                in vec3 vColor;
+                out vec4 fragColor;
+                void main() {
+                    fragColor = vec4(vColor, 1.0);
+                }
+            `;
+
+            const vs = compileShader(gl.VERTEX_SHADER, vsSrc);
+            const fs = compileShader(gl.FRAGMENT_SHADER, fsSrc);
+            if (!vs || !fs) return false;
+
+            const program = gl.createProgram();
+            gl.attachShader(program, vs);
+            gl.attachShader(program, fs);
+            gl.linkProgram(program);
+
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error('[WEBGL] Program link failed');
+                return false;
+            }
+
+            gl.useProgram(program);
+            gl.clearColor(0.0, 0.0, 0.05, 1.0);
+            gl.enable(gl.DEPTH_TEST);
+
+            // Generate a simple wireframe cube as a placeholder
+            const positions = new Float32Array([
+                // Cube edges (line pairs)
+                -1,-1,-1, 1,-1,-1,   1,-1,-1, 1,1,-1,
+                 1,1,-1, -1,1,-1,  -1,1,-1, -1,-1,-1,
+                -1,-1, 1, 1,-1, 1,   1,-1, 1, 1,1, 1,
+                 1,1, 1, -1,1, 1,  -1,1, 1, -1,-1, 1,
+                -1,-1,-1, -1,-1, 1, 1,-1,-1, 1,-1, 1,
+                 1,1,-1, 1,1, 1,  -1,1,-1, -1,1, 1,
+            ]);
+
+            const colors = new Float32Array(positions.length / 3 * 3);
+            for (let i = 0; i < colors.length; i += 3) {
+                colors[i] = 0.0;
+                colors[i+1] = 0.94;  // neon cyan
+                colors[i+2] = 1.0;
+            }
+
+            const posBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+
+            const colBuf = gl.createBuffer();
+            gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+            gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+
+            const aPos = gl.getAttribLocation(program, 'aPosition');
+            const aCol = gl.getAttribLocation(program, 'aColor');
+            const uMVP = gl.getUniformLocation(program, 'uMVP');
+
+            const vao = gl.createVertexArray();
+            gl.bindVertexArray(vao);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+            gl.enableVertexAttribArray(aPos);
+            gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+            gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+            gl.enableVertexAttribArray(aCol);
+            gl.vertexAttribPointer(aCol, 3, gl.FLOAT, false, 0, 0);
+
+            gl.bindVertexArray(null);
+
+            // Perspective projection matrix
+            function perspective(fov, aspect, near, far) {
+                const f = 1.0 / Math.tan(fov / 2);
+                const nf = 1 / (near - far);
+                return new Float32Array([
+                    f/aspect, 0, 0, 0,
+                    0, f, 0, 0,
+                    0, 0, (far + near) * nf, -1,
+                    0, 0, 2 * far * near * nf, 0
+                ]);
+            }
+
+            // Build a simple lookAt matrix
+            function lookAt(eye, center, up) {
+                const fwd = normalize3(sub3(center, eye));
+                const side = normalize3(cross3(fwd, up));
+                const newUp = cross3(side, fwd);
+                return new Float32Array([
+                    side[0], newUp[0], -fwd[0], 0,
+                    side[1], newUp[1], -fwd[1], 0,
+                    side[2], newUp[2], -fwd[2], 0,
+                    -dot3(side, eye), -dot3(newUp, eye), dot3(fwd, eye), 1
+                ]);
+            }
+
+            function mul4x4(a, b) {
+                const r = new Float32Array(16);
+                for (let i = 0; i < 4; i++)
+                    for (let j = 0; j < 4; j++)
+                        r[j*4+i] = a[i]*b[j*4] + a[4+i]*b[j*4+1] + a[8+i]*b[j*4+2] + a[12+i]*b[j*4+3];
+                return r;
+            }
+
+            const vertCount = positions.length / 3;
+
+            // State for wireframe scene
+            const scene = {
+                angle: 0,
+                scale: 5,
+            };
+
+            // Expose the render function
+            state.render = () => {
+                scene.angle += 0.005;
+
+                gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+                const aspect = canvas.width / canvas.height;
+                const proj = perspective(Math.PI / 3, aspect, 0.1, 100.0);
+                const eye = [
+                    Math.sin(scene.angle) * scene.scale * 1.5,
+                    scene.scale * 0.6,
+                    Math.cos(scene.angle) * scene.scale * 1.5
+                ];
+                const view = lookAt(eye, [0, 0, 0], [0, 1, 0]);
+                const mvp = mul4x4(proj, view);
+
+                gl.useProgram(program);
+                gl.uniformMatrix4fv(uMVP, false, mvp);
+                gl.bindVertexArray(vao);
+                gl.drawArrays(gl.LINES, 0, vertCount);
+                gl.bindVertexArray(null);
+            };
+
+            return true;
+        }
+
+        function compileShader(type, src) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, src);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                console.error('[WEBGL] Shader error:', gl.getShaderInfoLog(shader));
+                gl.deleteShader(shader);
+                return null;
+            }
+            return shader;
+        }
+
+        // ─── Vector Math Helpers ─────────────────────────────────────────
+
+        function sub3(a, b) { return [a[0]-b[0], a[1]-b[1], a[2]-b[2]]; }
+        function add3(a, b) { return [a[0]+b[0], a[1]+b[1], a[2]+b[2]]; }
+        function scale3(v, s) { return [v[0]*s, v[1]*s, v[2]*s]; }
+        function dot3(a, b) { return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
+        function cross3(a, b) {
+            return [a[1]*b[2] - a[2]*b[1], a[2]*b[0] - a[0]*b[2], a[0]*b[1] - a[1]*b[0]];
+        }
+        function normalize3(v) {
+            const m = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]);
+            return m ? [v[0]/m, v[1]/m, v[2]/m] : v;
+        }
+
+        // ─── Keyboard Input ──────────────────────────────────────────────
+
+        const keys = {};
+        document.addEventListener('keydown', (e) => { keys[e.key.toLowerCase()] = true; });
+        document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+        // ─── WebSocket Multiplayer Client ────────────────────────────────
+
+        function connectWebSocket() {
+            const url = CONFIG.wsUrl + '?room=omega_arena&player_id=' + CONFIG.playerName;
+            elements.wsDot.className = 'status-dot connecting';
+            elements.wsStatus.textContent = 'CONNECTING...';
+
+            try {
+                state.ws = new WebSocket(url);
+
+                state.ws.onopen = () => {
+                    elements.wsDot.className = 'status-dot connected';
+                    elements.wsStatus.textContent = 'CONNECTED';
+                };
+
+                state.ws.onmessage = (event) => {
+                    try {
+                        const msg = JSON.parse(event.data);
+                        switch (msg.type) {
+                            case 'welcome':
+                                console.log('[WS]', msg.message, 'as', msg.yourID);
+                                break;
+                            case 'state':
+                                updateMultiplayerState(msg);
+                                break;
+                            case 'event':
+                                console.log('[WS EVENT]', msg.message);
+                                break;
+                        }
+                    } catch (e) {
+                        console.warn('[WS] Parse error:', e);
+                    }
+                };
+
+                state.ws.onclose = () => {
+                    elements.wsDot.className = 'status-dot disconnected';
+                    elements.wsStatus.textContent = 'DISCONNECTED';
+                    setTimeout(connectWebSocket, 3000);
+                };
+
+                state.ws.onerror = () => {
+                    elements.wsDot.className = 'status-dot disconnected';
+                    elements.wsStatus.textContent = 'ERROR';
+                };
+            } catch (e) {
+                console.warn('[WS] Connection error:', e);
+                setTimeout(connectWebSocket, 3000);
+            }
+        }
+
+        function updateMultiplayerState(msg) {
+            // Update HUD from server state if available
+            if (msg.players) {
+                const me = msg.players.find(p => p.id === CONFIG.playerName);
+                if (me) {
+                    state.health = me.health;
+                    state.energy = me.energy;
+                    state.score = me.score;
+                    updateHUD();
+                }
+            }
+        }
+
+        function sendInput(pitch, yaw, roll, throttle) {
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({
+                    type: 'input',
+                    pitch, yaw, roll, throttle
+                }));
+            }
+        }
+
+        function sendFire(weapon) {
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'fire', fire: weapon }));
+            }
+        }
+
+        function sendGlitch() {
+            if (state.ws && state.ws.readyState === WebSocket.OPEN) {
+                state.ws.send(JSON.stringify({ type: 'glitch' }));
+            }
+        }
+
+        // ─── Puter.js Integration ────────────────────────────────────────
+
+        async function initPuter() {
+            try {
+                if (typeof puter === 'undefined') {
+                    elements.puterStatus.textContent = 'PUTER: SDK MISSING';
+                    return;
+                }
+
+                elements.puterDot.className = 'status-dot connecting';
+                elements.puterStatus.textContent = 'PUTER: CONNECTING...';
+
+                // Check if user is signed in
+                if (puter.auth && puter.auth.isSignedIn && !puter.auth.isSignedIn()) {
+                    elements.puterStatus.textContent = 'PUTER: SIGN IN REQUIRED';
+                    return;
+                }
+
+                state.puterReady = true;
+                elements.puterDot.className = 'status-dot connected';
+                elements.puterStatus.textContent = 'PUTER: ONLINE';
+
+                console.log('[PUTER] SDK initialized successfully');
+
+            } catch (e) {
+                console.warn('[PUTER] Init error:', e);
+                elements.puterDot.className = 'status-dot disconnected';
+                elements.puterStatus.textContent = 'PUTER: OFFLINE';
+            }
+        }
+
+        // ─── Puter AI: Generate Mission Briefing ─────────────────────────
+
+        async function generateMissionBriefing() {
+            try {
+                if (!state.puterReady || typeof puter === 'undefined' || !puter.ai) {
+                    elements.briefingText.textContent =
+                        'Sector Omega — Corrupted data-tower detected. Eliminate all hostile signals. ' +
+                        'Vector cannons online. Glitch drive standing by. Good hunting, pilot.';
+                    return;
+                }
+
+                elements.briefingText.textContent = 'Accessing neural grid for mission parameters...';
+
+                const response = await puter.ai.chat(
+                    "Generate a 2-sentence cyberpunk mission briefing for a wireframe dogfighter. " +
+                    "The player must destroy a corrupted data-tower defended by neural AI fighters. " +
+                    "Use dramatic, gritty tone. Mention the environment (neon grid, data-scattered sky)."
+                );
+
+                elements.briefingText.textContent = response || 'Mission parameters corrupted — proceed with default directive.';
+                elements.missionText.textContent = response || 'Sector Omega — eliminate all hostiles.';
+
+            } catch (e) {
+                console.warn('[AI] Briefing generation failed:', e);
+                elements.briefingText.textContent =
+                    'Sector Omega — default directives loaded. Eliminate all hostiles. Good luck, pilot.';
+            }
+        }
+
+        // ─── Puter KV: Save/Load Loadout ─────────────────────────────────
+
+        async function saveLoadout(loadout) {
+            try {
+                if (!state.puterReady || typeof puter === 'undefined') return;
+                await puter.kv.set('omni_loadout_v1', JSON.stringify(loadout));
+                console.log('[PUTER KV] Loadout saved');
+            } catch (e) {
+                console.warn('[PUTER KV] Save error:', e);
+            }
+        }
+
+        async function loadLoadout() {
+            try {
+                if (!state.puterReady || typeof puter === 'undefined') return null;
+                const data = await puter.kv.get('omni_loadout_v1');
+                return data ? JSON.parse(data) : null;
+            } catch (e) {
+                console.warn('[PUTER KV] Load error:', e);
+                return null;
+            }
+        }
+
+        // ─── Puter FS: Save Replay ───────────────────────────────────────
+
+        async function saveReplay(replayData) {
+            try {
+                if (!state.puterReady || typeof puter === 'undefined') {
+                    alert('Puter.js required for cloud saves. Sign in to save replays.');
+                    return;
+                }
+                const blob = new Blob([replayData], { type: 'application/octet-stream' });
+                await puter.fs.write(
+                    '/VectorStrike_Replays/match_' + Date.now() + '.bin',
+                    blob
+                );
+                console.log('[PUTER FS] Replay saved to cloud drive');
+            } catch (e) {
+                console.warn('[PUTER FS] Save error:', e);
+            }
+        }
+
+        // Expose saveReplay globally
+        window.saveReplay = saveReplay;
+
+        // ─── HUD Update ──────────────────────────────────────────────────
+
+        function updateHUD() {
+            elements.healthVal.textContent = Math.round(state.health);
+            elements.healthBar.style.width = Math.max(0, state.health) + '%';
+            elements.energyVal.textContent = Math.round(state.energy);
+            elements.energyBar.style.width = Math.max(0, state.energy) + '%';
+            elements.heatVal.textContent = Math.round(state.heat);
+            elements.heatBar.style.width = Math.min(100, state.heat) + '%';
+            elements.scoreVal.textContent = state.score;
+            elements.glitchStatus.textContent = state.glitchReady ? 'READY' : 'COOLDOWN';
+            elements.glitchStatus.style.color = state.glitchReady
+                ? 'var(--neon-green)' : 'var(--text-dim)';
+        }
+
+        // ─── Game Loop ───────────────────────────────────────────────────
+
+        let lastTime = performance.now();
+        let tickAccumulator = 0;
+        const TICK_RATE = 60;
+        const TICK_DT = 1 / TICK_RATE;
+
+        function gameLoop(time) {
+            const dt = Math.min((time - lastTime) / 1000, 0.05);
+            lastTime = time;
+
+            // FPS counter
+            state.frameCount++;
+            if (time - state.lastFpsUpdate > 1000) {
+                state.fps = state.frameCount;
+                state.frameCount = 0;
+                state.lastFpsUpdate = time;
+                elements.fps.textContent = state.fps + ' FPS';
+            }
+
+            // Fixed timestep accumulation
+            tickAccumulator += dt;
+            while (tickAccumulator >= TICK_DT) {
+                fixedUpdate(TICK_DT);
+                tickAccumulator -= TICK_DT;
+            }
+
+            // Render
+            if (state.running && state.render) {
+                state.render();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function fixedUpdate(dt) {
+            // Read keyboard input
+            const pitch = (keys['w'] ? -0.5 : 0) + (keys['s'] ? 0.5 : 0);
+            const yaw = (keys['a'] ? -0.5 : 0) + (keys['d'] ? 0.5 : 0);
+            const roll = (keys['q'] ? -0.5 : 0) + (keys['e'] ? 0.5 : 0);
+            const throttle = (keys['shift'] || keys['w']) ? 0.8 : 0;
+
+            // Send to server
+            sendInput(pitch, yaw, roll, throttle);
+
+            // Fire weapon
+            if (keys[' ']) {
+                sendFire(state.weapon);
+            }
+
+            // Glitch drive
+            if (keys['g'] && state.glitchReady) {
+                state.glitchReady = false;
+                sendGlitch();
+                setTimeout(() => { state.glitchReady = true; }, 8000);
+            }
+
+            // Simulate local HUD changes (server will override)
+            if (state.health < 100 && Math.random() < 0.01) {
+                state.health = Math.min(100, state.health + 0.5);
+            }
+            if (state.energy < 100) {
+                state.energy = Math.min(100, state.energy + 2 * dt);
+            }
+            if (state.heat > 0) {
+                state.heat = Math.max(0, state.heat - 15 * dt);
+            }
+            updateHUD();
+        }
+
+        // ─── Window Resize ───────────────────────────────────────────────
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
+        });
+
+        // ─── Enter Game ──────────────────────────────────────────────────
+
+        elements.enterBtn.addEventListener('click', () => {
+            elements.briefing.classList.add('hidden');
+            state.running = true;
+            // Connect WebSocket on game start
+            connectWebSocket();
+        });
+
+        // ─── Load Wasm Engine (when wasm-pack build is ready) ────────────
+
+        async function loadWasmEngine() {
+            try {
+                // Dynamic import of the Wasm module
+                // const wasm = await import('./pkg/vector_strike_core.js');
+                // await wasm.default();
+                // const engine = new wasm.GameEngine();
+                // engine.init_gl('gameCanvas');
+                // console.log('[WASM] Engine initialized:', engine.get_version());
+                // return engine;
+                console.log('[WASM] Wasm engine not compiled yet — using JS renderer');
+                return null;
+            } catch (e) {
+                console.warn('[WASM] Failed to load:', e);
+                return null;
+            }
+        }
+
+        // ─── Init ────────────────────────────────────────────────────────
+
+        async function init() {
+            console.log('╔═══════════════════════════════════════╗');
+            console.log('║  VECTOR STRIKE: OMNI — Initializing  ║');
+            console.log('╚═══════════════════════════════════════╝');
+
+            // 1. Initialize WebGL
+            const webglOk = initWebGL();
+            console.log('[INIT] WebGL2:', webglOk ? 'OK' : 'FALLBACK');
+
+            // 2. Initialize Puter.js
+            await initPuter();
+
+            // 3. Generate mission briefing via Puter AI
+            await generateMissionBriefing();
+
+            // 4. Try loading Wasm engine (silent if not built)
+            const wasmEngine = await loadWasmEngine();
+
+            // 5. Try loading saved loadout
+            const loadout = await loadLoadout();
+            if (loadout) {
+                console.log('[LOADOUT] Restored:', loadout);
+            } else {
+                const defaultLoadout = { ship: 'interceptor', shader: 'vaporwave' };
+                await saveLoadout(defaultLoadout);
+            }
+
+            // 6. Enable enter button
+            elements.enterBtn.textContent = 'ENTER THE ARENA';
+            elements.enterBtn.disabled = false;
+
+            // 7. Hide loading screen
+            elements.loading.classList.add('hidden');
+
+            // 8. Start game loop (renders background wireframe even before enter)
+            requestAnimationFrame(gameLoop);
+
+            console.log('[INIT] VECTOR STRIKE: OMNI ready');
+        }
+
+        // ─── Start ───────────────────────────────────────────────────────
+        init().catch((e) => {
+            console.error('[INIT] Fatal error:', e);
+            elements.loading.classList.add('hidden');
+            elements.briefingText.textContent =
+                'System initialization failed. Proceed with legacy protocols.';
+            elements.enterBtn.textContent = 'ENTER (DEGRADED MODE)';
+            elements.enterBtn.disabled = false;
+        });
+    </script>
+</body>
+</html>

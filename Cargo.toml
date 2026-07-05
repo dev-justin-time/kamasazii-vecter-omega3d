@@ -1,0 +1,33 @@
+[package]
+name = "vector_strike_core"
+version = "0.1.0"
+edition = "2021"
+description = "VECTOR STRIKE: OMNI — Rust core engine compiled to WebAssembly for air-to-air combat"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wasm-bindgen = "0.2"
+web-sys = { version = "0.3", features = [
+    'Window',
+    'Document',
+    'HtmlCanvasElement',
+    'WebGl2RenderingContext',
+    'WebGlProgram',
+    'WebGlShader',
+    'WebGlBuffer',
+    'WebGlUniformLocation',
+    'Performance',
+    'console'
+] }
+js-sys = "0.3"
+mlua = { version = "0.9", features = ["lua54", "vendored"] }
+nalgebra = "0.32"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true
