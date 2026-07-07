@@ -85,6 +85,7 @@ impl ShipState {
 pub struct GameEngine {
     engine: Engine,
     ships: Vec<ShipState>,
+    ai_active: bool,
     frame_count: u32,
     time_accumulator: f32,
     // WebGL state (held opaque to JS)
@@ -136,6 +137,7 @@ impl GameEngine {
         GameEngine {
             engine,
             ships: vec![ShipState::new("player_1"), ShipState::new("enemy_apex")],
+            ai_active: true,
             frame_count: 0,
             time_accumulator: 0.0,
             gl: None,
@@ -296,7 +298,8 @@ impl GameEngine {
             ship.integrate(dt);
         }
 
-        // --- Rhai AI Script Execution ---
+        // --- Rhai AI Script Execution (only when ai_active is true — disabled in PvP) ---
+        if self.ai_active {
         if let Some(enemy) = self.ships.get(1) {
             if let Some(player) = self.ships.get(0) {
                 let glitch_ready = if enemy.glitch_drive_ready { "true" } else { "false" };
@@ -344,6 +347,7 @@ impl GameEngine {
                     }
                 }
             }
+        }
         }
 
         // --- Render Wireframe ---
@@ -445,6 +449,48 @@ impl GameEngine {
     pub fn try_call_ai_apex(&self) -> bool {
         // The AI runs in tick() — this method confirms the engine is alive.
         true
+    }
+
+    /// Send input for player 2 (used in PvP mode).
+    /// `dt` is the fixed timestep (typically 1/60), used to scale torque and thrust.
+    pub fn set_player2_input(&mut self, pitch: f32, yaw: f32, roll: f32, throttle: f32, dt: f32) {
+        let dt = dt.min(0.05);
+        if let Some(p2) = self.ships.get_mut(1) {
+            let torque = Vector3::new(pitch * 5.0, yaw * 5.0, roll * 3.0);
+            p2.apply_torque(torque, dt);
+            if throttle > 0.0 {
+                p2.apply_thrust(throttle * 25.0, dt);
+            }
+        }
+    }
+
+    /// Enable or disable the Rhai AI tick (false for PvP mode).
+    pub fn set_ai_active(&mut self, active: bool) {
+        self.ai_active = active;
+    }
+
+    /// Reset ships for a specific game mode.
+    /// - "pvai": player_1 + enemy_apex (AI enabled)
+    /// - "pvp":  player_1 + player_2 (AI disabled)
+    pub fn reset_ships_for_mode(&mut self, mode: &str) {
+        self.ships.clear();
+        match mode {
+            "pvp" => {
+                self.ships.push(ShipState::new("player_1"));
+                self.ships.push(ShipState::new("player_2"));
+                self.ai_active = false;
+            }
+            "pvai" => {
+                self.ships.push(ShipState::new("player_1"));
+                self.ships.push(ShipState::new("enemy_apex"));
+                self.ai_active = true;
+            }
+            _ => {
+                self.ships.push(ShipState::new("player_1"));
+                self.ships.push(ShipState::new("enemy_apex"));
+                self.ai_active = true;
+            }
+        }
     }
 
     /// Return the default weapon list as a JSON array string.

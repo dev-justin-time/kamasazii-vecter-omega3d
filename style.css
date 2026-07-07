@@ -298,6 +298,152 @@ html, body {
     box-shadow: 0 0 20px rgba(0, 240, 255, 0.4);
 }
 
+/* ─── Mode Selector (Briefing Overlay) ──────────────────────────────────── */
+
+.mode-selector {
+    margin: 16px 0 20px 0;
+    text-align: center;
+}
+
+.mode-selector-label {
+    color: var(--text-dim);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+}
+
+.mode-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+}
+
+.mode-btn {
+    pointer-events: all;
+    background: rgba(0, 10, 30, 0.6);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    border-radius: 6px;
+    padding: 10px 20px;
+    color: var(--text-primary);
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    min-width: 120px;
+}
+
+.mode-btn .mode-icon {
+    font-size: 22px;
+    line-height: 1.2;
+}
+
+.mode-btn .mode-title {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 1px;
+}
+
+.mode-btn .mode-desc {
+    font-size: 9px;
+    color: var(--text-dim);
+    letter-spacing: 0.3px;
+}
+
+.mode-btn:hover {
+    border-color: rgba(0, 240, 255, 0.4);
+    background: rgba(0, 240, 255, 0.08);
+}
+
+.mode-btn.active {
+    border-color: var(--neon-cyan);
+    background: rgba(0, 240, 255, 0.12);
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.2);
+}
+
+.mode-btn.active .mode-title {
+    color: var(--neon-cyan);
+}
+
+/* ─── PvP Player 2 Status Panel (Left-Center) ──────────────────────────── */
+
+#pvp-status {
+    position: absolute;
+    top: 50%;
+    left: 20px;
+    transform: translateY(-50%);
+    background: var(--bg-panel);
+    border: 1px solid rgba(255, 0, 230, 0.25);
+    border-radius: 4px;
+    padding: 10px 14px;
+    min-width: 150px;
+    backdrop-filter: blur(8px);
+}
+
+#pvp-status.hidden {
+    display: none;
+}
+
+.pvp-header {
+    color: var(--neon-magenta);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+    border-bottom: 1px solid rgba(255, 0, 230, 0.2);
+    padding-bottom: 4px;
+}
+
+.pvp-health { background: var(--neon-magenta); }
+.pvp-energy { background: var(--neon-orange); }
+
+.pvp-controls-hint {
+    margin-top: 6px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(255, 0, 230, 0.12);
+    color: rgba(255, 0, 230, 0.4);
+    font-size: 9px;
+    text-align: center;
+    letter-spacing: 0.5px;
+}
+
+/* ─── Arena Credit (Bottom credit line) ────────────────────────────────── */
+
+#arena-credit {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(255, 255, 255, 0.15);
+    font-size: 9px;
+    letter-spacing: 0.5px;
+    text-align: center;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* ─── Mode Indicator (Top-Center) ──────────────────────────────────────── */
+
+#mode-indicator {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: var(--text-dim);
+    font-size: 11px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 240, 255, 0.1);
+    border-radius: 4px;
+    padding: 4px 16px;
+    backdrop-filter: blur(8px);
+    opacity: 0.7;
+}
+
 /* ─── Grid Background (CSS fallback) ─────────────────────────────────────── */
 
 #css-grid {
@@ -786,4 +932,122 @@ html, body {
     #fire-btn .fire-btn-icon {
         font-size: 18px;
     }
+}
+
+
+/* ─── Ship Loadout Selector (Briefing Overlay) ──────────────────── */
+
+.loadout-selector {
+    margin: 12px 0 14px 0;
+    text-align: center;
+}
+
+.loadout-selector .loadout-slots {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    flex-wrap: wrap;
+}
+
+.loadout-slot {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0, 10, 30, 0.6);
+    border: 1px solid rgba(0, 240, 255, 0.12);
+    border-radius: 4px;
+    padding: 6px 10px;
+    min-width: 180px;
+    transition: border-color 0.2s ease;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.loadout-slot:hover {
+    border-color: rgba(0, 240, 255, 0.3);
+}
+
+.loadout-slot-label {
+    color: var(--text-dim);
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-right: 4px;
+    min-width: 18px;
+}
+
+.loadout-name {
+    color: var(--neon-cyan);
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    min-width: 80px;
+    text-align: center;
+}
+
+.loadout-desc {
+    color: var(--text-dim);
+    font-size: 8px;
+    letter-spacing: 0.3px;
+    width: 100%;
+    text-align: center;
+    opacity: 0.7;
+}
+
+.loadout-arrow {
+    pointer-events: all;
+    background: transparent;
+    border: 1px solid rgba(0, 240, 255, 0.2);
+    color: var(--neon-cyan);
+    width: 22px;
+    height: 22px;
+    border-radius: 3px;
+    cursor: pointer;
+    font-size: 10px;
+    line-height: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.15s ease;
+    padding: 0;
+}
+
+.loadout-arrow:hover {
+    background: rgba(0, 240, 255, 0.15);
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.2);
+}
+
+.loadout-arrow:active {
+    transform: scale(0.9);
+}
+
+@media (max-width: 768px) {
+    .loadout-slot {
+        min-width: 140px;
+        padding: 4px 8px;
+    }
+    .loadout-name {
+        font-size: 10px;
+        min-width: 60px;
+    }
+}
+
+
+/* Disabled loadout arrow (P2 slot in PvAI mode) */
+.loadout-arrow:disabled,
+.loadout-arrow-disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+    pointer-events: none;
+    border-color: rgba(0, 240, 255, 0.08);
+    background: transparent;
+    box-shadow: none;
+}
+
+.loadout-arrow:disabled:hover,
+.loadout-arrow-disabled:hover {
+    background: transparent;
+    border-color: rgba(0, 240, 255, 0.08);
+    box-shadow: none;
 }

@@ -29,6 +29,45 @@
         <div class="briefing-text" id="briefing-text">
             Connecting to Puter AI to generate mission parameters...
         </div>
+
+        <!-- ═══ Mode Selector ═══ -->
+        <div class="mode-selector">
+            <div class="mode-selector-label">MISSION TYPE</div>
+            <div class="mode-buttons">
+                <button class="mode-btn active" data-mode="pvai" id="mode-pvai">
+                    <span class="mode-icon">⚔️</span>
+                    <span class="mode-title">PvAI</span>
+                    <span class="mode-desc">Dogfight Neural AI</span>
+                </button>
+                <button class="mode-btn" data-mode="pvp" id="mode-pvp">
+                    <span class="mode-icon">👥</span>
+                    <span class="mode-title">PvP</span>
+                    <span class="mode-desc">Local Dual</span>
+                </button>
+            </div>
+        </div>
+
+
+        <!-- ═══ Ship Loadout Selector ═══ -->
+        <div class="loadout-selector">
+            <div class="loadout-slots">
+                <div class="loadout-slot" data-slot="player_1">
+                    <span class="loadout-slot-label">P1</span>
+                    <button class="loadout-arrow loadout-prev" data-slot="player_1" aria-label="Previous">◀</button>
+                    <span class="loadout-name" id="loadout-name-player_1">F-22 Raptor</span>
+                    <button class="loadout-arrow loadout-next" data-slot="player_1" aria-label="Next">▶</button>
+                    <span class="loadout-desc" id="loadout-desc-player_1">Stealth Fighter</span>
+                </div>
+                <div class="loadout-slot" data-slot="player_2">
+                    <span class="loadout-slot-label" id="loadout-slot2-label">P2</span>
+                    <button class="loadout-arrow loadout-prev" data-slot="player_2" aria-label="Previous">◀</button>
+                    <span class="loadout-name" id="loadout-name-player_2">Corsair</span>
+                    <button class="loadout-arrow loadout-next" data-slot="player_2" aria-label="Next">▶</button>
+                    <span class="loadout-desc" id="loadout-desc-player_2">Prop Fighter</span>
+                </div>
+            </div>
+        </div>
+
         <button class="enter-btn" id="enter-btn" disabled>INITIALIZING...</button>
     </div>
 
@@ -98,6 +137,39 @@
         <div id="weapon-display">
             <div class="weapon-name" id="weapon-name">PLASMA BOLT</div>
             <div class="weapon-status" id="weapon-status">READY | Energy: 100%</div>
+        </div>
+
+        <!-- ═══ PvP: Player 2 Status (Left-Center, hidden by default) ═══ -->
+        <div id="pvp-status" class="hidden">
+            <div class="pvp-header">PLAYER 2</div>
+            <div class="stat-row">
+                <span class="stat-label">HEALTH</span>
+                <span class="stat-value" id="p2-health-value">100</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill pvp-health" id="p2-health-bar" style="width:100%"></div>
+            </div>
+            <div class="stat-row">
+                <span class="stat-label">ENERGY</span>
+                <span class="stat-value" id="p2-energy-value">100</span>
+            </div>
+            <div class="stat-bar">
+                <div class="stat-bar-fill pvp-energy" id="p2-energy-bar" style="width:100%"></div>
+            </div>
+            <div class="stat-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,0,230,0.15);">
+                <span class="stat-label" style="font-size:9px;">GLITCH</span>
+                <span class="stat-value" id="p2-glitch-status" style="font-size:10px;color:var(--text-dim)">STANDBY</span>
+            </div>
+            <div class="pvp-controls-hint">↑↓←→ Enter</div>
+        </div>
+
+        <!-- Mode Indicator (Top-Center) -->
+        <div id="mode-indicator">PvAI</div>
+
+        <!-- CC-BY-4.0 Credit: 90s Vaporwave Neon Grid by Diego T. Yamaguchi -->
+        <div id="arena-credit" title="Arena model by Diego T. Yamaguchi (CC-BY-4.0)">
+            <span>Neon Grid Arena © Diego T. Yamaguchi</span>
+            <span style="font-size:8px;opacity:0.5;"> CC-BY-4.0</span>
         </div>
 
         <!-- Network Status (Bottom-Right) -->
@@ -191,6 +263,20 @@
             rhaiErrorList: $('rhai-error-list'),
             rhaiErrorClear: $('rhai-error-clear-btn'),
             fireBtn: $('fire-btn'),
+            modeIndicator: $('mode-indicator'),
+            modePvai: $('mode-pvai'),
+            modePvp: $('mode-pvp'),
+            pvpStatus: $('pvp-status'),
+            p2HealthVal: $('p2-health-value'),
+            p2HealthBar: $('p2-health-bar'),
+            p2EnergyVal: $('p2-energy-value'),
+            p2EnergyBar: $('p2-energy-bar'),
+            p2GlitchStatus: $('p2-glitch-status'),
+            loadoutNameP1: $('loadout-name-player_1'),
+            loadoutNameP2: $('loadout-name-player_2'),
+            loadoutDescP1: $('loadout-desc-player_1'),
+            loadoutDescP2: $('loadout-desc-player_2'),
+            loadoutSlot2Label: $('loadout-slot2-label')
         };
 
         // ─── Weapon Definitions ────────────────────────────────────
@@ -467,6 +553,10 @@ function installRhaiConsoleInterceptor() {
             weaponIndex: 0,
             weaponCooldowns: {},       // weapon key -> remaining cooldown seconds
             availableWeapons: [...WEAPON_ORDER], // populated from engine when available
+            // Game mode: 'pvai' or 'pvp'
+            gameMode: 'pvai',
+            // Player 2 state (PvP)
+            p2: { health: 100, energy: 100, glitchReady: true },
         };
 
         // Initialize cooldown timers for all weapons
@@ -568,6 +658,10 @@ function installRhaiConsoleInterceptor() {
 
             gl.bindVertexArray(null);
 
+            // Store program + uniform for arena rendering
+            ARENA.program = program;
+            ARENA.uMVP = uMVP;
+
             // Perspective projection matrix
             function perspective(fov, aspect, near, far) {
                 const f = 1.0 / Math.tan(fov / 2);
@@ -609,27 +703,173 @@ function installRhaiConsoleInterceptor() {
                 scale: 5,
             };
 
+            // Vaporwave grid animation time
+            let arenaAnimT = 0;
+
+            // Smooth oscillation for subtle vaporwave breathing effect
+            function evaluateArenaAnimation(t) {
+                // Subtle sine-wave oscillation: gentle breathing of the grid
+                const breathe = Math.sin(t * 0.3) * 0.5;
+                return [0, breathe, 0]; // subtle vertical pulse
+            }
+
             // Expose the render function
             state.render = () => {
                 scene.angle += 0.005;
+                arenaAnimT += 0.016;
+                // Use original animation if loaded, otherwise fall back to sine
+                let animOffset = [0, 0, 0];
+                if (ARENA.animTimes && ARENA.animTimes.length > 0) {
+                    // Sample from loaded keyframes (clamped to avoid last-frame boundary)
+                    const t = Math.min(arenaAnimT % ARENA.animDuration, ARENA.animDuration - 0.001);
+                    const keys = ARENA.animTimes;
+                    const vals = ARENA.animTranslations;
+                    // Find surrounding keyframes
+                    let idx = 0;
+                    for (let i = 0; i < keys.length - 1; i++) {
+                        if (t >= keys[i] && t <= keys[i + 1]) { idx = i; break; }
+                    }
+                    idx = Math.min(idx, keys.length - 2);
+                    const t0 = keys[idx], t1 = keys[idx + 1];
+                    const f = t1 > t0 ? (t - t0) / (t1 - t0) : 0;
+                    const i3 = idx * 3;
+                    animOffset = [
+                        vals[i3]     + (vals[i3 + 3]     - vals[i3])     * f,
+                        vals[i3 + 1] + (vals[i3 + 4] - vals[i3 + 1]) * f,
+                        vals[i3 + 2] + (vals[i3 + 5] - vals[i3 + 2]) * f,
+                    ];
+                    // Scale down by ~0.058 (root matrix scale) for world-space
+                    animOffset[0] *= 0.058;
+                    animOffset[1] *= 0.058;
+                    animOffset[2] *= 0.058;
+                } else {
+                    animOffset = evaluateArenaAnimation(arenaAnimT);
+                }
 
                 gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
                 const aspect = canvas.width / canvas.height;
-                const proj = perspective(Math.PI / 3, aspect, 0.1, 100.0);
-                const eye = [
-                    Math.sin(scene.angle) * scene.scale * 1.5,
-                    scene.scale * 0.6,
-                    Math.cos(scene.angle) * scene.scale * 1.5
-                ];
-                const view = lookAt(eye, [0, 0, 0], [0, 1, 0]);
-                const mvp = mul4x4(proj, view);
+                const proj = perspective(Math.PI / 3, aspect, 0.1, 5000.0);
 
-                gl.useProgram(program);
-                gl.uniformMatrix4fv(uMVP, false, mvp);
-                gl.bindVertexArray(vao);
-                gl.drawArrays(gl.LINES, 0, vertCount);
-                gl.bindVertexArray(null);
+                // Camera: follow first player if game is running, otherwise orbit
+                let eye, center;
+                if (state.running && state.engine) {
+                    try {
+                        const shipData = JSON.parse(state.engine.get_ship_positions());
+                        const p1 = shipData.find(s => s.id === 'player_1');
+                        if (p1) {
+                            center = [p1.x, p1.y, p1.z];
+                            // Camera behind and above player
+                            const camDist = 15;
+                            const camHeight = 8;
+                            // For now, orbit around player
+                            eye = [
+                                center[0] + Math.sin(scene.angle) * camDist,
+                                center[1] + camHeight,
+                                center[2] + Math.cos(scene.angle) * camDist
+                            ];
+                        } else {
+                            center = [0, 0, 0];
+                            eye = [
+                                0 + Math.sin(scene.angle) * scene.scale * 10,
+                                scene.scale * 5,
+                                0 + Math.cos(scene.angle) * scene.scale * 10
+                            ];
+                        }
+                    } catch (_) {
+                        center = [0, 0, 0];
+                        eye = [Math.sin(scene.angle)*50, 30, Math.cos(scene.angle)*50];
+                    }
+                } else {
+                    center = [0, 0, 0];
+                    // Wider orbit to show the full arena
+                    eye = [
+                        Math.sin(scene.angle) * 200,
+                        120,
+                        Math.cos(scene.angle) * 200
+                    ];
+                }
+
+                const view = lookAt(eye, center, [0, 1, 0]);
+
+                // Apply animation offset to the view matrix for arena rendering
+                // This subtly moves the grid for the vaporwave aesthetic
+                let animView = view;
+                if (ARENA.loaded) {
+                    // Translate view origin by animation offset (inverse: move arena, not camera)
+                    const ax = animOffset[0], ay = animOffset[1], az = animOffset[2];
+                    animView = new Float32Array(view);
+                    animView[12] += view[0]*ax + view[4]*ay + view[8]*az;
+                    animView[13] += view[1]*ax + view[5]*ay + view[9]*az;
+                    animView[14] += view[2]*ax + view[6]*ay + view[10]*az;
+                }
+
+                // Render arena if loaded
+                if (ARENA.loaded) {
+                    renderArena(animView, proj);
+                } else {
+                    // Fallback: draw wireframe cube
+                    const mvp = mul4x4(proj, view);
+                    gl.useProgram(program);
+                    gl.uniformMatrix4fv(uMVP, false, mvp);
+                    gl.bindVertexArray(vao);
+                    gl.drawArrays(gl.LINES, 0, vertCount);
+                    gl.bindVertexArray(null);
+                }
+
+                // Render 3D ship models at each ship's position
+                if (state.engine) {
+                    try {
+                        const shipData = JSON.parse(state.engine.get_ship_positions());
+                        for (const ship of shipData) {
+                            const isP1 = ship.id === 'player_1';
+                            const isP2 = ship.id === 'player_2';
+                            const isEnemy = ship.id === 'enemy_apex';
+                            if (!isP1 && !isP2 && !isEnemy) continue;
+                            if (isP2 && state.gameMode !== 'pvp') continue;
+
+                            // Look up the assigned 3D model for this ship
+                            const modelName = SHIPS.assignments[ship.id];
+                            const model = modelName ? SHIPS.models[modelName] : null;
+                            const color = SHIPS.colors[ship.id] || [0.5, 0.5, 0.5];
+
+                            if (model) {
+                                // Render the loaded 3D ship model
+                                renderShipModel(model, [ship.x, ship.y, ship.z], color, proj, view);
+                            } else {
+                                // Fallback: colored triangle marker
+                                const s = 3;
+                                const mp = new Float32Array([
+                                    ship.x, ship.y+s, ship.z,
+                                    ship.x-s, ship.y-s, ship.z,
+                                    ship.x+s, ship.y-s, ship.z,
+                                ]);
+                                const mc = new Float32Array([
+                                    color[0],color[1],color[2],
+                                    color[0],color[1],color[2],
+                                    color[0],color[1],color[2],
+                                ]);
+                                const pb = gl.createBuffer(), cb = gl.createBuffer();
+                                gl.bindBuffer(gl.ARRAY_BUFFER, pb);
+                                gl.bufferData(gl.ARRAY_BUFFER, mp, gl.DYNAMIC_DRAW);
+                                gl.bindBuffer(gl.ARRAY_BUFFER, cb);
+                                gl.bufferData(gl.ARRAY_BUFFER, mc, gl.DYNAMIC_DRAW);
+                                const mvp2 = mul4x4(proj, view);
+                                gl.useProgram(program);
+                                gl.uniformMatrix4fv(uMVP, false, mvp2);
+                                gl.bindBuffer(gl.ARRAY_BUFFER, pb);
+                                gl.enableVertexAttribArray(aPos);
+                                gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+                                gl.bindBuffer(gl.ARRAY_BUFFER, cb);
+                                gl.enableVertexAttribArray(aCol);
+                                gl.vertexAttribPointer(aCol, 3, gl.FLOAT, false, 0, 0);
+                                gl.drawArrays(gl.TRIANGLES, 0, 3);
+                                gl.deleteBuffer(pb);
+                                gl.deleteBuffer(cb);
+                            }
+                        }
+                    } catch (_) {}
+                }
             };
 
             return true;
@@ -661,7 +901,292 @@ function installRhaiConsoleInterceptor() {
             return m ? [v[0]/m, v[1]/m, v[2]/m] : v;
         }
 
-        // ─── Keyboard Input ──────────────────────────────────────────────
+        // ─── Mat4 Helpers (for GLTF node transforms) ─────────────────────
+
+        function mat4Identity() {
+            return new Float32Array([1,0,0,0,0,1,0,0,0,0,1,0,0,0,0,1]);
+        }
+
+        function mat4Multiply(a, b) {
+            const r = new Float32Array(16);
+            for (let i = 0; i < 4; i++)
+                for (let j = 0; j < 4; j++)
+                    r[j*4+i] = a[i]*b[j*4] + a[4+i]*b[j*4+1] + a[8+i]*b[j*4+2] + a[12+i]*b[j*4+3];
+            return r;
+        }
+
+        function mat4Translate(m, tx, ty, tz) {
+            const r = new Float32Array(m);
+            r[12] += m[0]*tx + m[4]*ty + m[8]*tz;
+            r[13] += m[1]*tx + m[5]*ty + m[9]*tz;
+            r[14] += m[2]*tx + m[6]*ty + m[10]*tz;
+            r[15] += m[3]*tx + m[7]*ty + m[11]*tz;
+            return r;
+        }
+
+        function mat4Scale(m, sx, sy, sz) {
+            const r = new Float32Array(m);
+            r[0]*=sx; r[1]*=sx; r[2]*=sx; r[3]*=sx;
+            r[4]*=sy; r[5]*=sy; r[6]*=sy; r[7]*=sy;
+            r[8]*=sz; r[9]*=sz; r[10]*=sz; r[11]*=sz;
+            return r;
+        }
+
+        function mat4FromQuat(m, qx, qy, qz, qw) {
+            const xx=qx*qx, yy=qy*qy, zz=qz*qz;
+            const xy=qx*qy, xz=qx*qz, yz=qy*qz;
+            const wx=qw*qx, wy=qw*qy, wz=qw*qz;
+            const r = mat4Identity();
+            r[0]=1-2*(yy+zz); r[4]=2*(xy-wz);     r[8]=2*(xz+wy);
+            r[1]=2*(xy+wz);   r[5]=1-2*(xx+zz);   r[9]=2*(yz-wx);
+            r[2]=2*(xz-wy);   r[6]=2*(yz+wx);     r[10]=1-2*(xx+yy);
+            return mat4Multiply(m, r);
+        }
+
+        // ─── GLTF Arena Loader (90s Vaporwave Neon Grid) ─────────────────
+
+        const ARENA = {
+            loaded: false,
+            meshes: [],
+            program: null,
+            uMVP: null,
+            animTime: 0,
+            animDuration: 10,
+            animTranslations: null,
+            animTimes: null,
+        };
+
+        async function loadArena() {
+            const base = './assets/models/90s_vaporwave_neon_grid_animated (1)/';
+            try {
+                const gltfResp = await fetch(base + 'scene.gltf');
+                const gltf = await gltfResp.json();
+                const binResp = await fetch(base + gltf.buffers[0].uri);
+                const bin = await binResp.arrayBuffer();
+
+                const matColors = [
+                    [1.0, 0.5, 1.0],    // 0: pink neon grid
+                    [0.01, 0.01, 0.01], // 1: floor (dark)
+                    [0.012, 0.009, 0.04], // 2: mountain (dark purple)
+                    [0.0, 0.997, 1.0],   // 3: mountain edges (cyan)
+                ];
+
+                function readAccessor(accIdx) {
+                    const acc = gltf.accessors[accIdx];
+                    const bv = gltf.bufferViews[acc.bufferView];
+                    const byteOff = (acc.byteOffset || 0) + bv.byteOffset;
+                    const n = acc.type === 'VEC3' ? 3 : acc.type === 'VEC2' ? 2 : acc.type === 'SCALAR' ? 1 :
+                              acc.type === 'VEC4' ? 4 : 3;
+                    return new Float32Array(bin, byteOff, acc.count * n);
+                }
+
+                function readIndices(accIdx) {
+                    const acc = gltf.accessors[accIdx];
+                    const bv = gltf.bufferViews[acc.bufferView];
+                    const byteOff = (acc.byteOffset || 0) + bv.byteOffset;
+                    const stride = bv.byteStride || 4;
+                    const src = new Uint32Array(bin, byteOff, acc.count * stride / 4);
+                    if (stride > 4) {
+                        // Interleaved — extract every stride/4 words
+                        const r = new Uint32Array(acc.count);
+                        for (let i = 0; i < acc.count; i++) r[i] = src[i * (stride/4)];
+                        return r;
+                    }
+                    return new Uint32Array(bin, byteOff, acc.count);
+                }
+
+                // Compute world matrices by traversing node hierarchy
+                function getNodeWorldMatrix(nodeIdx, cache) {
+                    if (cache[nodeIdx]) return cache[nodeIdx];
+                    const node = gltf.nodes[nodeIdx];
+                    let local = mat4Identity();
+                    if (node.matrix) {
+                        local = new Float32Array(node.matrix);
+                    } else {
+                        if (node.translation) local = mat4Translate(local, node.translation[0], node.translation[1], node.translation[2]);
+                        if (node.rotation) local = mat4FromQuat(local, node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3]);
+                        if (node.scale) local = mat4Scale(local, node.scale[0], node.scale[1], node.scale[2]);
+                    }
+                    let parentIdx = -1;
+                    for (let i = 0; i < gltf.nodes.length; i++) {
+                        if (gltf.nodes[i].children && gltf.nodes[i].children.includes(nodeIdx)) {
+                            parentIdx = i; break;
+                        }
+                    }
+                    if (parentIdx >= 0) local = mat4Multiply(getNodeWorldMatrix(parentIdx, cache), local);
+                    cache[nodeIdx] = local;
+                    return local;
+                }
+
+                const nodeMatrices = [];
+                const meshEntries = [];
+                for (let i = 0; i < gltf.nodes.length; i++) {
+                    const n = gltf.nodes[i];
+                    getNodeWorldMatrix(i, nodeMatrices);
+                    if (n.mesh !== undefined) {
+                        meshEntries.push({ nodeIdx: i, meshIdx: n.mesh, worldMtx: nodeMatrices[i] });
+                    }
+                }
+
+                // Build WebGL buffers for each mesh primitive
+                const meshes = [];
+                for (const me of meshEntries) {
+                    const meshDef = gltf.meshes[me.meshIdx];
+                    for (const prim of meshDef.primitives) {
+                        const pos = readAccessor(prim.attributes.POSITION);
+                        const idx = readIndices(prim.indices);
+                        const matIdx = prim.material !== undefined ? prim.material : 0;
+                        const col = matColors[matIdx] || [1,1,1];
+
+                        // Transform positions to world space
+                        const m = me.worldMtx;
+                        const worldPos = new Float32Array(pos.length);
+                        for (let i = 0; i < pos.length; i += 3) {
+                            const x=pos[i], y=pos[i+1], z=pos[i+2];
+                            worldPos[i]   = x*m[0] + y*m[4] + z*m[8] + m[12];
+                            worldPos[i+1] = x*m[1] + y*m[5] + z*m[9] + m[13];
+                            worldPos[i+2] = x*m[2] + y*m[6] + z*m[10] + m[14];
+                        }
+
+                        // Per-vertex color
+                        const colors = new Float32Array(pos.length);
+                        for (let i = 0; i < colors.length; i += 3) {
+                            colors[i]=col[0]; colors[i+1]=col[1]; colors[i+2]=col[2];
+                        }
+
+                        const vao = gl.createVertexArray();
+                        gl.bindVertexArray(vao);
+
+                        const posBuf = gl.createBuffer();
+                        gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+                        gl.bufferData(gl.ARRAY_BUFFER, worldPos, gl.STATIC_DRAW);
+                        const aPos = gl.getAttribLocation(ARENA.program, 'aPosition');
+                        gl.enableVertexAttribArray(aPos);
+                        gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+                        const colBuf = gl.createBuffer();
+                        gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+                        gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+                        const aCol = gl.getAttribLocation(ARENA.program, 'aColor');
+                        gl.enableVertexAttribArray(aCol);
+                        gl.vertexAttribPointer(aCol, 3, gl.FLOAT, false, 0, 0);
+
+                        const idxBuf = gl.createBuffer();
+                        gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+                        gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+
+                        gl.bindVertexArray(null);
+
+                        meshes.push({ vao, indexCount: idx.length, mode: gl.TRIANGLES });
+                    }
+                }
+
+                // Parse animation
+                if (gltf.animations && gltf.animations.length > 0) {
+                    const anim = gltf.animations[0];
+                    const smp = anim.samplers[0];
+                    ARENA.animTimes = readAccessor(smp.input);
+                    ARENA.animTranslations = readAccessor(smp.output);
+                    ARENA.animDuration = ARENA.animTimes[ARENA.animTimes.length - 1] || 10;
+                    console.log('[ARENA] Animation loaded: ' + ARENA.animTimes.length + ' keyframes, ' + ARENA.animDuration.toFixed(1) + 's');
+                }
+
+                ARENA.meshes = meshes;
+                ARENA.loaded = true;
+                console.log('[ARENA] Vaporwave grid loaded: ' + meshes.length + ' primitives, ~' +
+                    meshes.reduce((s,m)=>s+m.indexCount,0) + ' triangles');
+            } catch (e) {
+                console.warn('[ARENA] Failed to load vaporwave model:', e);
+            }
+        }
+
+        function renderArena(viewMatrix, projMatrix) {
+            if (!ARENA.loaded || !ARENA.program) return;
+            const gl2 = gl;
+            const mvp = mat4Multiply(projMatrix, viewMatrix);
+            gl2.useProgram(ARENA.program);
+            gl2.uniformMatrix4fv(ARENA.uMVP, false, mvp);
+            for (const mesh of ARENA.meshes) {
+                gl2.bindVertexArray(mesh.vao);
+                gl2.drawElements(mesh.mode, mesh.indexCount, gl2.UNSIGNED_INT, 0);
+            }
+            gl2.bindVertexArray(null);
+        }
+
+        // ─── GLB Ship Model Loader ────────────────────────────────────
+        // Loads binary glTF (.glb) ship models and creates WebGL VAOs.
+        // Each ship gets a mutable color buffer for per-team coloring.
+
+        const SHIPS = {
+            models: {},
+            scale: 2.5,
+            assignments: {
+                player_1: 'f22_raptor',
+                player_2: 'corsair_plane',
+                enemy_apex: 'helicopter',
+            },
+            colors: {
+                player_1: [0.0, 1.0, 0.4],
+                player_2: [1.0, 0.0, 0.6],
+                enemy_apex: [1.0, 0.4, 0.0],
+            },
+            paths: {
+                f22_raptor: './assets/f22_raptor.glb',
+                corsair_plane: './assets/corsair_plane.glb',
+                helicopter: './assets/animated_helicopter.glb',
+                bf109: './assets/bf_109_f-2_messerschmitt.glb',
+                medical_drone: './assets/critical_medical_drone.glb',
+                heavy_spaceship: './assets/heavy_spacehip (1).glb',
+            },
+            // All selectable ships with display info — used in loadout UI
+            available: [
+                { key: 'f22_raptor', name: 'F-22 Raptor', desc: 'Stealth Fighter' },
+                { key: 'bf109', name: 'BF-109', desc: 'Axis Fighter' },
+                { key: 'corsair_plane', name: 'Corsair', desc: 'Prop Fighter' },
+                { key: 'helicopter', name: 'Attack Heli', desc: 'Rotary Wing' },
+                { key: 'medical_drone', name: 'Med Drone', desc: 'Support UAV' },
+                { key: 'heavy_spaceship', name: 'Heavy Ship', desc: 'Bomber' },
+            ],
+        };
+
+        // Current loadout indices into SHIPS.available for each slot
+        let loadoutIdx = {
+            player_1: 0,  // f22_raptor
+            player_2: 2,  // corsair_plane
+            enemy_apex: 3, // helicopter
+     
+
+        /**
+         * Select a ship model for a player slot, cycling by direction.
+         */
+        function selectShipLoadout(slot, direction) {
+            const avail = SHIPS.available;
+            const len = avail.length;
+            if (len === 0) return;
+            const prevIdx = loadoutIdx[slot];
+            const newIdx = ((prevIdx + direction) % len + len) % len;
+            loadoutIdx[slot] = newIdx;
+            const entry = avail[newIdx];
+            SHIPS.assignments[slot] = entry.key;
+            const nameId = 'loadout-name-' + slot;
+            const descId = 'loadout-desc-' + slot;
+            const nameEl = document.getElementById(nameId);
+            const descEl = document.getElementById(descId);
+            if (nameEl) nameEl.textContent = entry.name;
+            if (descEl) descEl.textContent = entry.desc;
+        }
+
+        // Wire loadout arrow buttons
+        document.querySelectorAll('.loadout-arrow').forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                var slot = btn.getAttribute('data-slot');
+                var dir = btn.classList.contains('loadout-prev') ? -1 : 1;
+                selectShipLoadout(slot, dir);
+            });
+        });
+
+ // ─── Keyboard Input ──────────────────────────────────────────────
 
         const keys = {};
         document.addEventListener('keydown', (e) => {
@@ -683,6 +1208,18 @@ function installRhaiConsoleInterceptor() {
             }
         });
         document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+        // ─── Player 2 Keyboard (PvP: Arrow Keys + Enter) ────────────────
+        // Player 2 controls use arrow keys for pitch/yaw.
+        // Pitch: Up/Down arrows. Yaw: Left/Right arrows.
+        // Fire: Enter key. No roll/throttle for P2 (simplified).
+
+        function getPlayer2Input() {
+            if (state.gameMode !== 'pvp') return { pitch: 0, yaw: 0, roll: 0, throttle: 0, fire: false };
+            const pitch = (keys['arrowup'] ? -0.5 : 0) + (keys['arrowdown'] ? 0.5 : 0);
+            const yaw = (keys['arrowleft'] ? -0.5 : 0) + (keys['arrowright'] ? 0.5 : 0);
+            return { pitch, yaw, roll: 0, throttle: pitch !== 0 ? 0.8 : 0, fire: !!keys['enter'] };
+        }
 
         // ─── Touch / Pointer Input (Mobile + Desktop) ──────────────────
         // Drag anywhere on the canvas to control pitch/yaw.
@@ -1282,8 +1819,8 @@ function installRhaiConsoleInterceptor() {
                 tickAccumulator -= TICK_DT;
             }
 
-            // Render
-            if (state.running && state.render) {
+            // Render (always runs — visible behind briefing overlay)
+            if (state.render) {
                 state.render();
             }
 
@@ -1291,14 +1828,13 @@ function installRhaiConsoleInterceptor() {
         }
 
         function fixedUpdate(dt) {
-            // Read keyboard input
+            // Read keyboard input (Player 1)
             const kPitch = (keys['w'] ? -0.5 : 0) + (keys['s'] ? 0.5 : 0);
             const kYaw = (keys['a'] ? -0.5 : 0) + (keys['d'] ? 0.5 : 0);
             const kRoll = (keys['q'] ? -0.5 : 0) + (keys['e'] ? 0.5 : 0);
             const kThrottle = (keys['shift'] || keys['w']) ? 0.8 : 0;
 
             // Read touch/pointer input — drag offset mapped to normalized -1..1
-            // Sensitivity divisor: ~35% of viewport dimension = full deflection
             const tPitch = pointer.active
                 ? -Math.max(-1, Math.min(1, (pointer.y - pointer.startY) / (window.innerHeight * 0.35)))
                 : 0;
@@ -1309,33 +1845,25 @@ function installRhaiConsoleInterceptor() {
             // Blend: touch overrides keyboard when a pointer is active
             const pitch = pointer.active ? tPitch : kPitch;
             const yaw = pointer.active ? tYaw : kYaw;
-            const roll = pointer.active ? 0 : kRoll;   // no roll on touch
+            const roll = pointer.active ? 0 : kRoll;
             const throttle = pointer.active ? 0.8 : kThrottle;
 
-            // Fire weapon: spacebar key OR touch/pointer tap OR fire button hold
             const wantsFire = keys[' '] || pointer.tapped || pointer.firePressed;
-            pointer.tapped = false;  // consume tap flag (firePressed stays while held)
-
-            // Send to server
-            sendInput(pitch, yaw, roll, throttle);
-
-            // Glitch drive
-            if (keys['g'] && state.glitchReady) {
-                state.glitchReady = false;
-                sendGlitch();
-                setTimeout(() => { state.glitchReady = true; }, 8000);
-            }
+            pointer.tapped = false;
 
             // ─── WASM Engine Tick ────────────────────────────────────
-            // Pipe player input into the Rust engine's physics, then run
-            // the full tick: physics integration + inline Rhai AI execution.
             if (state.engine) {
                 state.engine.set_player_input(pitch, yaw, roll, throttle, dt);
+
+                // PvP: pipe player 2 input into the engine
+                if (state.gameMode === 'pvp') {
+                    const p2 = getPlayer2Input();
+                    state.engine.set_player2_input(p2.pitch, p2.yaw, p2.roll, p2.throttle, dt);
+                }
+
                 state.engine.tick(dt);
 
                 // ─── Sync HUD from Rust Engine ───────────────────────
-                // Read authoritative ship state from the engine and update
-                // the JS HUD (health, energy, position, glitch status).
                 try {
                     const shipData = JSON.parse(state.engine.get_ship_positions());
                     const player = shipData.find(s => s.id === 'player_1');
@@ -1350,44 +1878,70 @@ function installRhaiConsoleInterceptor() {
                                 Math.round(player.z);
                         }
                     }
-                } catch (_) { /* silent — parsing errors are non-critical */ }
+                    // PvP: sync player 2 state
+                    if (state.gameMode === 'pvp') {
+                        const p2Ship = shipData.find(s => s.id === 'player_2');
+                        if (p2Ship) {
+                            state.p2.health = p2Ship.health;
+                            state.p2.energy = p2Ship.energy;
+                            state.p2.glitchReady = !!p2Ship.glitch_ready;
+                        }
+                    }
+                } catch (_) {}
             }
 
             // ─── Weapon System ───────────────────────────────────────
-            // Tick down all cooldowns
             for (const key of WEAPON_ORDER) {
                 if (state.weaponCooldowns[key] > 0) {
                     state.weaponCooldowns[key] = Math.max(0, state.weaponCooldowns[key] - dt);
                 }
             }
 
-            // Fire current weapon on spacebar or touch/pointer tap (resource-gated)
             if (wantsFire) {
                 const def = WEAPON_DEFS[state.weapon];
                 const cd = state.weaponCooldowns[state.weapon] || 0;
-
                 if (def && cd <= 0 && state.energy >= def.energy_cost && state.heat + def.heat_generation < 100) {
-                    // Consume resources and fire
                     state.energy -= def.energy_cost;
                     state.heat = Math.min(100, state.heat + def.heat_generation);
                     state.weaponCooldowns[state.weapon] = def.cooldown;
-                    // Keep the Rust engine's energy in sync with JS-side weapon fire
                     if (state.engine && typeof state.engine.spend_energy === 'function') {
                         state.engine.spend_energy(def.energy_cost);
                     }
                     sendFire(state.weapon);
-
-                    if (def.homing) {
-                        console.log('[WEAPON] Fired heatseeker (homing)');
-                    }
+                    if (def.homing) console.log('[WEAPON] Fired heatseeker (homing)');
                 }
             }
 
-            // Heat dissipation (JS-side only — engine doesn't track heat)
+            // Heat dissipation
             if (state.heat > 0) {
                 state.heat = Math.max(0, state.heat - 15 * dt);
             }
+
+            // Send player 1 input to server
+            sendInput(pitch, yaw, roll, throttle);
+
+            // Player 1 glitch drive
+            if (keys['g'] && state.glitchReady) {
+                state.glitchReady = false;
+                sendGlitch();
+                setTimeout(() => { state.glitchReady = true; }, 8000);
+            }
+
             updateHUD();
+            if (state.gameMode === 'pvp') updatePvPHUD();
+        }
+
+        // ─── PvP HUD Update ────────────────────────────────────────────
+
+        function updatePvPHUD() {
+            if (elements.p2HealthVal) elements.p2HealthVal.textContent = Math.round(state.p2.health);
+            if (elements.p2HealthBar) elements.p2HealthBar.style.width = Math.max(0, state.p2.health) + '%';
+            if (elements.p2EnergyVal) elements.p2EnergyVal.textContent = Math.round(state.p2.energy);
+            if (elements.p2EnergyBar) elements.p2EnergyBar.style.width = Math.max(0, state.p2.energy) + '%';
+            if (elements.p2GlitchStatus) {
+                elements.p2GlitchStatus.textContent = state.p2.glitchReady ? 'READY' : 'COOLDOWN';
+                elements.p2GlitchStatus.style.color = state.p2.glitchReady ? 'var(--neon-green)' : 'var(--text-dim)';
+            }
         }
 
         // ─── Window Resize ───────────────────────────────────────────────
@@ -1398,11 +1952,64 @@ function installRhaiConsoleInterceptor() {
             if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
         });
 
+        // ─── Mode Selection ─────────────────────────────────────────────
+
+        function setGameMode(mode) {
+            state.gameMode = mode;
+            if (elements.modeIndicator) elements.modeIndicator.textContent = mode.toUpperCase();
+            // Update button active states
+            if (elements.modePvai && elements.modePvp) {
+                elements.modePvai.classList.toggle('active', mode === 'pvai');
+                elements.modePvp.classList.toggle('active', mode === 'pvp');
+            }
+            // Toggle PvP HUD visibility
+            if (elements.pvpStatus) {
+                elements.pvpStatus.classList.toggle('hidden', mode !== 'pvp');
+            // Update loadout slot 2 label + disable P2 arrows in PvAI
+            if (elements.loadoutSlot2Label) {
+                elements.loadoutSlot2Label.textContent = mode === 'pvp' ? 'P2' : 'AI';
+            }
+            // Disable player_2 loadout arrows in PvAI (enemy forced to helicopter on enter)
+            const p2Slots = document.querySelectorAll('.loadout-slot[data-slot="player_2"] .loadout-arrow');
+            const isPvAI = mode === 'pvai';
+            p2Slots.forEach(function(btn) {
+                btn.disabled = isPvAI;
+                btn.classList.toggle('loadout-arrow-disabled', isPvAI);
+            });
+            }
+            // Append mode-specific info to existing briefing text
+            const currentText = elements.briefingText.textContent;
+            const modeSuffix = mode === 'pvp'
+                ? '\n\n▸ PvP Mode: Player 1 (WASD+Space) vs Player 2 (Arrow+Enter). Last pilot standing wins.'
+                : '\n\n▸ PvAI Mode: Dogfight the neural AI. Eliminate all hostiles.';
+            // Only append if the current display text doesn't already have this suffix
+            if (!currentText.includes('▸ Pv' + mode.toUpperCase().slice(0,2))) {
+                elements.briefingText.textContent = currentText + modeSuffix;
+            }
+            console.log('[MODE] Set to ' + mode.toUpperCase());
+        }
+
+        if (elements.modePvai) {
+            elements.modePvai.addEventListener('click', () => setGameMode('pvai'));
+        }
+        if (elements.modePvp) {
+            elements.modePvp.addEventListener('click', () => setGameMode('pvp'));
+        }
+
         // ─── Enter Game ──────────────────────────────────────────────────
 
         elements.enterBtn.addEventListener('click', () => {
             elements.briefing.classList.add('hidden');
+
+            // Reset engine ships for the selected game mode
+            if (state.engine && typeof state.engine.reset_ships_for_mode === 'function') {
+                state.engine.reset_ships_for_mode(state.gameMode);
+                console.log('[ENGINE] Ships reset for mode: ' + state.gameMode);
+            }
+
             state.running = true;
+            // Reset player 2 state
+            state.p2 = { health: 100, energy: 100, glitchReady: true };
             // Connect WebSocket on game start
             connectWebSocket();
         });
@@ -1433,7 +2040,16 @@ function installRhaiConsoleInterceptor() {
             const webglOk = initWebGL();
             console.log('[INIT] WebGL2:', webglOk ? 'OK' : 'FALLBACK');
 
-            // 2. Initialize Puter.js
+            // 2. Load the vaporwave arena + ship models (fire-and-forget)
+            if (webglOk) {
+                loadArena().catch(e => console.warn('[ARENA] Load error:', e));
+                // Load ship models in parallel
+                for (const [name, path] of Object.entries(SHIPS.paths)) {
+                    loadShipGLB(name, path).catch(e => console.warn('[SHIP] Load error:', e));
+                }
+            }
+
+            // 3. Initialize Puter.js
             await initPuter();
 
             // 3. Generate mission briefing via Puter AI
@@ -1474,10 +2090,10 @@ function installRhaiConsoleInterceptor() {
             elements.enterBtn.textContent = 'ENTER THE ARENA';
             elements.enterBtn.disabled = false;
 
-            // 9. Hide loading screen
+            // 10. Hide loading screen
             elements.loading.classList.add('hidden');
 
-            // 10. Start game loop (renders background wireframe even before enter)
+            // 11. Start game loop (renders background wireframe even before enter)
             requestAnimationFrame(gameLoop);
 
             console.log('[INIT] VECTOR STRIKE: OMNI ready');
