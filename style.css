@@ -1051,3 +1051,19 @@ html, body {
     border-color: rgba(0, 240, 255, 0.08);
     box-shadow: none;
 }
+
+/* Loadout Sync Indicator */
+.loadout-sync-indicator {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--text-dim);
+    letter-spacing: 0.3px;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+.loadout-sync-indicator:hover { opacity: 1; }
+.sync-icon { font-size: 12px; line-height: 1; }
+.sync-text { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; }

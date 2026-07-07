@@ -1,5 +1,5 @@
 use js_sys::Math;
-use nalgebra::{Matrix3, Vector3};
+use nalgebra::{Matrix3, Point3, Vector3};
 use rhai::Engine;
 use wasm_bindgen::prelude::*;
 use web_sys::{WebGl2RenderingContext, WebGlProgram, WebGlShader};
@@ -388,9 +388,9 @@ impl GameEngine {
         );
 
         // Camera looking at origin from behind player
-        let camera_pos = nalgebra::Point3::new(0.0, 5.0, 20.0);
-        let target = nalgebra::Point3::new(0.0, 0.0, 0.0);
-        let up = nalgebra::Vector3::new(0.0, 1.0, 0.0);
+        let camera_pos = Point3::new(0.0, 5.0, 20.0);
+        let target = Point3::new(0.0, 0.0, 0.0);
+        let up = Vector3::new(0.0, 1.0, 0.0);
 
         let view = nalgebra::Matrix4::look_at_rh(&camera_pos, &target, &up);
         let mvp = projection * view;

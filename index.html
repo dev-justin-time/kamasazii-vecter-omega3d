@@ -66,6 +66,10 @@
                     <span class="loadout-desc" id="loadout-desc-player_2">Prop Fighter</span>
                 </div>
             </div>
+            <div class="loadout-sync-indicator" id="loadout-sync-indicator">
+                <span class="sync-icon" id="sync-icon">&#9729;</span>
+                <span class="sync-text" id="sync-text">Ready</span>
+            </div>
         </div>
 
         <button class="enter-btn" id="enter-btn" disabled>INITIALIZING...</button>
@@ -276,7 +280,9 @@
             loadoutNameP2: $('loadout-name-player_2'),
             loadoutDescP1: $('loadout-desc-player_1'),
             loadoutDescP2: $('loadout-desc-player_2'),
-            loadoutSlot2Label: $('loadout-slot2-label')
+            loadoutSlot2Label: $('loadout-slot2-label'),
+            syncIcon: $('sync-icon'),
+            syncText: $('sync-text')
         };
 
         // ─── Weapon Definitions ────────────────────────────────────
@@ -1154,11 +1160,179 @@ function installRhaiConsoleInterceptor() {
             player_1: 0,  // f22_raptor
             player_2: 2,  // corsair_plane
             enemy_apex: 3, // helicopter
-     
+        };
 
-        /**
-         * Select a ship model for a player slot, cycling by direction.
-         */
+        // ─── GLB Ship Model Loader ────────────────────────────────────
+
+        async function loadShipGLB(name, url) {
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) throw new Error('HTTP ' + resp.status);
+                const buf = await resp.arrayBuffer();
+                const dv = new DataView(buf);
+
+                if (dv.getUint32(0, true) !== 0x46546C67) throw new Error('Not a GLB');
+
+                let offset = 12;
+                const totalLen = dv.getUint32(8, true);
+                let gltf = null, binData = null;
+
+                while (offset < totalLen) {
+                    const chunkLen = dv.getUint32(offset, true);
+                    const chunkType = dv.getUint32(offset + 4, true);
+                    offset += 8;
+                    const chunk = buf.slice(offset, offset + chunkLen);
+                    if (chunkType === 0x4E4F534A) gltf = JSON.parse(new TextDecoder().decode(chunk));
+                    else if (chunkType === 0x004E4942) binData = chunk;
+                    offset += chunkLen;
+                }
+                if (!gltf || !binData) throw new Error('Missing chunks');
+
+                function readAccessor(accIdx) {
+                    const acc = gltf.accessors[accIdx];
+                    const bv = gltf.bufferViews[acc.bufferView];
+                    const bo = (acc.byteOffset || 0) + bv.byteOffset;
+                    const n = acc.type === 'VEC3' ? 3 : acc.type === 'VEC2' ? 2 : 1;
+                    return new Float32Array(binData, bo, acc.count * n);
+                }
+
+                function readIndices(accIdx) {
+                    const acc = gltf.accessors[accIdx];
+                    const bv = gltf.bufferViews[acc.bufferView];
+                    const bo = (acc.byteOffset || 0) + bv.byteOffset;
+                    if (acc.componentType === 5123) return new Uint16Array(binData, bo, acc.count);
+                    return new Uint32Array(binData, bo, acc.count);
+                }
+
+                function getNodeMatrix(ni, cache) {
+                    if (cache[ni]) return cache[ni];
+                    const node = gltf.nodes[ni];
+                    let m = mat4Identity();
+                    if (node.matrix) m = new Float32Array(node.matrix);
+                    else {
+                        if (node.translation) m = mat4Translate(m, node.translation[0], node.translation[1], node.translation[2]);
+                        if (node.rotation) m = mat4FromQuat(m, node.rotation[0], node.rotation[1], node.rotation[2], node.rotation[3]);
+                        if (node.scale) m = mat4Scale(m, node.scale[0], node.scale[1], node.scale[2]);
+                    }
+                    let parent = -1;
+                    for (let i = 0; i < gltf.nodes.length; i++) {
+                        if (gltf.nodes[i].children && gltf.nodes[i].children.includes(ni)) { parent = i; break; }
+                    }
+                    if (parent >= 0) m = mat4Multiply(getNodeMatrix(parent, cache), m);
+                    cache[ni] = m;
+                    return m;
+                }
+
+                const matCache = [];
+                const allPos = [], allIdx = [];
+                let baseVtx = 0;
+
+                for (let i = 0; i < gltf.nodes.length; i++) {
+                    const wm = getNodeMatrix(i, matCache);
+                    if (gltf.nodes[i].mesh !== undefined) {
+                        const meshDef = gltf.meshes[gltf.nodes[i].mesh];
+                        for (const prim of meshDef.primitives) {
+                            const pos = readAccessor(prim.attributes.POSITION);
+                            const idx = readIndices(prim.indices);
+                            for (let j = 0; j < pos.length; j += 3) {
+                                const x=pos[j], y=pos[j+1], z=pos[j+2];
+                                allPos.push(x*wm[0]+y*wm[4]+z*wm[8]+wm[12]);
+                                allPos.push(x*wm[1]+y*wm[5]+z*wm[9]+wm[13]);
+                                allPos.push(x*wm[2]+y*wm[6]+z*wm[10]+wm[14]);
+                            }
+                            for (let j = 0; j < idx.length; j++) allIdx.push(idx[j] + baseVtx);
+                            baseVtx += pos.length / 3;
+                        }
+                    }
+                }
+
+                if (allPos.length === 0) throw new Error('No mesh data');
+
+                let minX=Infinity, minY=Infinity, minZ=Infinity;
+                let maxX=-Infinity, maxY=-Infinity, maxZ=-Infinity;
+                for (let j = 0; j < allPos.length; j += 3) {
+                    if (allPos[j]   < minX) minX = allPos[j];
+                    if (allPos[j]   > maxX) maxX = allPos[j];
+                    if (allPos[j+1] < minY) minY = allPos[j+1];
+                    if (allPos[j+1] > maxY) maxY = allPos[j+1];
+                    if (allPos[j+2] < minZ) minZ = allPos[j+2];
+                    if (allPos[j+2] > maxZ) maxZ = allPos[j+2];
+                }
+                const dx = maxX - minX, dy = maxY - minY, dz = maxZ - minZ;
+                const diagonal = Math.sqrt(dx*dx + dy*dy + dz*dz) || 1;
+                const TARGET_SIZE = 8;
+                const unitScale = TARGET_SIZE / diagonal;
+
+                const vao = gl.createVertexArray();
+                gl.bindVertexArray(vao);
+
+                const posBuf = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, posBuf);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(allPos), gl.STATIC_DRAW);
+                const aPos = gl.getAttribLocation(ARENA.program, 'aPosition');
+                gl.enableVertexAttribArray(aPos);
+                gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
+
+                const defCol = new Float32Array(allPos.length);
+                for (let i = 0; i < defCol.length; i++) defCol[i] = 0.5;
+                const colBuf = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, colBuf);
+                gl.bufferData(gl.ARRAY_BUFFER, defCol, gl.DYNAMIC_DRAW);
+                const aCol = gl.getAttribLocation(ARENA.program, 'aColor');
+                gl.enableVertexAttribArray(aCol);
+                gl.vertexAttribPointer(aCol, 3, gl.FLOAT, false, 0, 0);
+
+                const useUint16 = !allIdx.some(function(i) { return i > 65535; });
+                const idxBuf = gl.createBuffer();
+                gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idxBuf);
+                gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,
+                    useUint16 ? new Uint16Array(allIdx) : new Uint32Array(allIdx),
+                    gl.STATIC_DRAW);
+
+                gl.bindVertexArray(null);
+
+                const model = {
+                    vao, colBuf,
+                    vertexCount: allPos.length / 3,
+                    indexCount: allIdx.length,
+                    indexType: useUint16 ? gl.UNSIGNED_SHORT : gl.UNSIGNED_INT,
+                    unitScale,
+                };
+
+                SHIPS.models[name] = model;
+                console.log('[SHIP] Loaded ' + name + ': ' + model.vertexCount + ' verts, ' + model.indexCount + ' indices, diag=' + diagonal.toFixed(1) + ', scale=' + unitScale.toFixed(3));
+                return model;
+            } catch (e) {
+                console.warn('[SHIP] Failed to load ' + name + ' from ' + url + ': ' + e.message);
+                return null;
+            }
+        }
+
+        function renderShipModel(model, pos, color, proj, view) {
+            if (!model || !ARENA.program) return;
+            const n = model.vertexCount;
+            const cols = new Float32Array(n * 3);
+            for (let i = 0; i < n; i++) { cols[i*3]=color[0]; cols[i*3+1]=color[1]; cols[i*3+2]=color[2]; }
+            gl.bindBuffer(gl.ARRAY_BUFFER, model.colBuf);
+            gl.bufferSubData(gl.ARRAY_BUFFER, 0, cols);
+
+            const s = model.unitScale || 2.5;
+            const mm = new Float32Array([
+                0, 0, -s, 0,
+                0, s, 0, 0,
+                s, 0, 0, 0,
+                pos[0], pos[1], pos[2], 1
+            ]);
+            const mv = mat4Multiply(view, mm);
+            const mvp = mat4Multiply(proj, mv);
+
+            gl.useProgram(ARENA.program);
+            gl.uniformMatrix4fv(ARENA.uMVP, false, mvp);
+            gl.bindVertexArray(model.vao);
+            gl.drawElements(gl.TRIANGLES, model.indexCount, model.indexType, 0);
+            gl.bindVertexArray(null);
+        }
+
         function selectShipLoadout(slot, direction) {
             const avail = SHIPS.available;
             const len = avail.length;
@@ -1174,6 +1348,11 @@ function installRhaiConsoleInterceptor() {
             const descEl = document.getElementById(descId);
             if (nameEl) nameEl.textContent = entry.name;
             if (descEl) descEl.textContent = entry.desc;
+            // Debounced persist to Puter KV (500ms after last click)
+            if (window.__loadoutSaveTimer) clearTimeout(window.__loadoutSaveTimer);
+            window.__loadoutSaveTimer = window.__syncErrorTimer = setTimeout(function() {
+                saveLoadout({player_1: SHIPS.assignments.player_1, player_2: SHIPS.assignments.player_2, mode: state.gameMode});
+            }, 500);
         }
 
         // Wire loadout arrow buttons
@@ -1494,15 +1673,31 @@ function installRhaiConsoleInterceptor() {
 
         // ─── Puter KV: Save/Load Loadout ─────────────────────────────────
 
-        async function saveLoadout(loadout) {
-            try {
-                if (!state.puterReady || typeof puter === 'undefined') return;
-                await puter.kv.set('omni_loadout_v1', JSON.stringify(loadout));
-                console.log('[PUTER KV] Loadout saved');
-            } catch (e) {
-                console.warn('[PUTER KV] Save error:', e);
+        async function saveLoadout(loadout) {{
+            var si = document.getElementById("sync-icon");
+            var st = document.getElementById("sync-text");
+            if (window.__syncErrorTimer) clearTimeout(window.__syncErrorTimer);
+            function setSync(icon, msg) {
+                if (si) si.textContent = icon;
+                if (st) st.textContent = msg;
             }
-        }
+            try {
+                if (!state.puterReady || typeof puter === "undefined") {
+                    setSync("\u26e4", "Offline");
+                    return;
+                }
+                setSync("\u23f3", "Saving...");
+                await puter.kv.set("omni_loadout_v1", JSON.stringify(loadout));
+                setSync("\u2601\ufe0f", "Saved");
+                console.log("[PUTER KV] Loadout saved");
+            } catch (e) {
+                setSync("\u26a0\ufe0f", "Error");
+                console.warn("[PUTER KV] Save error:", e);
+                setTimeout(function() {
+                    if (st && st.textContent === "Error") setSync("\u2601\ufe0f", "Ready");
+                }, 3000);
+            }
+        
 
         async function loadLoadout() {
             try {
@@ -1987,6 +2182,8 @@ function installRhaiConsoleInterceptor() {
                 elements.briefingText.textContent = currentText + modeSuffix;
             }
             console.log('[MODE] Set to ' + mode.toUpperCase());
+            // Persist mode to cloud
+            saveLoadout({player_1: SHIPS.assignments.player_1, player_2: SHIPS.assignments.player_2, mode: state.gameMode});
         }
 
         if (elements.modePvai) {
