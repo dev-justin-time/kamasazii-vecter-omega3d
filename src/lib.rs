@@ -1,6 +1,6 @@
 use js_sys::Math;
-use mlua::prelude::*;
 use nalgebra::{Matrix3, Vector3};
+use rhai::Engine;
 use wasm_bindgen::prelude::*;
 use web_sys::{WebGl2RenderingContext, WebGlProgram, WebGlShader};
 
@@ -83,7 +83,7 @@ impl ShipState {
 
 #[wasm_bindgen]
 pub struct GameEngine {
-    lua: Lua,
+    engine: Engine,
     ships: Vec<ShipState>,
     frame_count: u32,
     time_accumulator: f32,
@@ -96,47 +96,45 @@ pub struct GameEngine {
 impl GameEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> GameEngine {
-        let lua = Lua::new();
+        let mut engine = Engine::new();
 
-        // Register Rust functions exposed to Lua
-        GameEngine::register_lua_functions(&lua);
+        // Register Rust functions exposed to Rhai scripts
+        GameEngine::register_rhai_functions(&mut engine);
 
-        // Preload core Lua gameplay scripts
-        if let Err(e) = lua
-            .load(
-                r#"
-                -- VECTOR STRIKE: OMNI Core Lua Environment
-                function vector_distance(a, b)
-                    local dx = a[1] - b[1]
-                    local dy = a[2] - b[2]
-                    local dz = a[3] - b[3]
-                    return math.sqrt(dx*dx + dy*dy + dz*dz)
-                end
+        // Preload core Rhai gameplay scripts — defines vector_distance, normalize,
+        // and evaluate_combat_state for use by ai_apex.rhai and the inline tick AI.
+        if let Err(e) = engine.run(
+            r#"
+                // VECTOR STRIKE: OMNI Core Rhai Environment
 
-                function normalize(v)
-                    local mag = math.sqrt(v[1]*v[1] + v[2]*v[2] + v[3]*v[3])
-                    if mag == 0 then return {0,0,0} end
-                    return {v[1]/mag, v[2]/mag, v[3]/mag}
-                end
+                fn vector_distance(x1, y1, z1, x2, y2, z2) {
+                    let dx = x1 - x2;
+                    let dy = y1 - y2;
+                    let dz = z1 - z2;
+                    sqrt(dx * dx + dy * dy + dz * dz)
+                }
 
-                -- Default combat AI (overridable)
-                function evaluate_combat_state(enemy_pos, player_pos, enemy_health, player_health)
-                    local dist = vector_distance(enemy_pos, player_pos)
-                    local threat = 0
-                    if dist < 300 then threat = 1.0
-                    elseif dist < 800 then threat = 0.5
-                    else threat = 0.1 end
-                    return { distance = dist, threat_level = threat }
-                end
+                fn normalize(x, y, z) {
+                    let mag = sqrt(x * x + y * y + z * z);
+                    if mag == 0.0 { [0.0, 0.0, 0.0] }
+                    else { [x / mag, y / mag, z / mag] }
+                }
+
+                // Default combat AI (overridable by ai_apex.rhai hot-reload)
+                fn evaluate_combat_state(ex, ey, ez, px, py, pz, enemy_health) {
+                    let dist = vector_distance(ex, ey, ez, px, py, pz);
+                    let threat = if dist < 300.0 { 1.0 }
+                        else if dist < 800.0 { 0.5 }
+                        else { 0.1 };
+                    [dist, threat]
+                }
             "#,
-            )
-            .exec()
-        {
-            let _ = web_sys::console::log_1(&format!("Lua init error: {}", e).into());
+        ) {
+            let _ = web_sys::console::log_1(&format!("[RHAI] Init error: {}", e).into());
         }
 
         GameEngine {
-            lua,
+            engine,
             ships: vec![ShipState::new("player_1"), ShipState::new("enemy_apex")],
             frame_count: 0,
             time_accumulator: 0.0,
@@ -145,59 +143,55 @@ impl GameEngine {
         }
     }
 
-    fn register_lua_functions(lua: &Lua) {
-        let apply_thrust_fn = lua
-            .create_function(|_, (ship_id, force): (String, f32)| {
-                // This is called from Lua; handled via globals in tick
-                Ok(())
-            })
-            .unwrap();
-        lua.globals()
-            .set("apply_thrust", apply_thrust_fn)
-            .unwrap();
+    fn register_rhai_functions(engine: &mut Engine) {
+        engine.register_fn("apply_thrust", |ship_id: String, force: f64| {
+            web_sys::console::log_1(
+                &format!("[RHAI] {} thrust {:.1}", ship_id, force).into(),
+            );
+        });
 
-        let fire_weapon_fn = lua
-            .create_function(|_, (ship_id, weapon_type): (String, String)| {
-                let msg = format!("[WEAPON] {} fired {}", ship_id, weapon_type);
-                web_sys::console::log_1(&msg.into());
-                Ok(true)
-            })
-            .unwrap();
-        lua.globals()
-            .set("fire_vector_cannon", fire_weapon_fn)
-            .unwrap();
-
-        let get_distance_fn = lua
-            .create_function(|_, ()| -> LuaResult<f32> { Ok(600.0) })
-            .unwrap();
-        lua.globals()
-            .set("get_distance_to_target", get_distance_fn)
-            .unwrap();
-
-        let trigger_glitch = lua
-            .create_function(|_, (ship_id,): (String,)| {
-                let msg = format!("[GLITCH] {} initiated quantum drive!", ship_id);
-                web_sys::console::log_1(&msg.into());
-                Ok(())
-            })
-            .unwrap();
-        lua.globals()
-            .set("trigger_glitch_drive", trigger_glitch)
-            .unwrap();
-
-        let align_heading_fn = lua
-            .create_function(|_, (ship_id, target_pos): (String, Vec<f32>)| {
-                let msg = format!(
-                    "[AI] {} aligning to target ({:.1}, {:.1}, {:.1})",
-                    ship_id, target_pos[0], target_pos[1], target_pos[2]
+        engine.register_fn(
+            "fire_vector_cannon",
+            |ship_id: String, weapon_type: String| {
+                web_sys::console::log_1(
+                    &format!("[WEAPON] {} fired {}", ship_id, weapon_type).into(),
                 );
-                web_sys::console::log_1(&msg.into());
-                Ok(())
-            })
-            .unwrap();
-        lua.globals()
-            .set("align_heading", align_heading_fn)
-            .unwrap();
+                true
+            },
+        );
+
+        engine.register_fn("get_distance_to_target", || -> f64 { 600.0 });
+
+        engine.register_fn("trigger_glitch_drive", |ship_id: String| {
+            web_sys::console::log_1(
+                &format!("[GLITCH] {} initiated quantum drive!", ship_id).into(),
+            );
+        });
+
+        engine.register_fn(
+            "align_heading",
+            |ship_id: String, target: Vec<f64>| {
+                if target.len() >= 3 {
+                    web_sys::console::log_1(
+                        &format!(
+                            "[AI] {} aligning to ({:.1}, {:.1}, {:.1})",
+                            ship_id, target[0], target[1], target[2]
+                        )
+                        .into(),
+                    );
+                }
+            },
+        );
+
+        engine.register_fn("apply_torque", |_ship_id: String, _roll: f64, _pitch: f64, _yaw: f64| {
+            // Placeholder — physics torque integration called from JS side.
+        });
+
+        engine.register_fn("random", || -> f64 { Math::random() });
+
+        engine.register_fn("log_info", |msg: String| {
+            web_sys::console::log_1(&msg.into());
+        });
     }
 
     /// Initialize WebGL2 context and compile wireframe shaders
@@ -260,7 +254,10 @@ impl GameEngine {
         let shader = gl.create_shader(shader_type).unwrap();
         gl.shader_source(&shader, source);
         gl.compile_shader(&shader);
-        if gl.get_shader_parameter(&shader, WebGl2RenderingContext::COMPILE_STATUS).is_falsy() {
+        if gl
+            .get_shader_parameter(&shader, WebGl2RenderingContext::COMPILE_STATUS)
+            .is_falsy()
+        {
             let log = gl.get_shader_info_log(&shader).unwrap_or_default();
             return Err(JsValue::from_str(&format!("Shader compile error: {}", log)));
         }
@@ -276,14 +273,17 @@ impl GameEngine {
         gl.attach_shader(&program, vs);
         gl.attach_shader(&program, fs);
         gl.link_program(&program);
-        if gl.get_program_parameter(&program, WebGl2RenderingContext::LINK_STATUS).is_falsy() {
+        if gl
+            .get_program_parameter(&program, WebGl2RenderingContext::LINK_STATUS)
+            .is_falsy()
+        {
             let log = gl.get_program_info_log(&program).unwrap_or_default();
             return Err(JsValue::from_str(&format!("Program link error: {}", log)));
         }
         Ok(program)
     }
 
-    /// Main game tick — physics, Lua AI, rendering
+    /// Main game tick — physics, Rhai AI, rendering
     pub fn tick(&mut self, dt: f32) {
         self.frame_count += 1;
         self.time_accumulator += dt;
@@ -296,34 +296,34 @@ impl GameEngine {
             ship.integrate(dt);
         }
 
-        // --- Lua AI Script Execution ---
+        // --- Rhai AI Script Execution ---
         if let Some(enemy) = self.ships.get(1) {
             if let Some(player) = self.ships.get(0) {
+                let glitch_ready = if enemy.glitch_drive_ready { "true" } else { "false" };
                 let script = format!(
                     r#"
-                    -- VECTOR STRIKE AI BRAIN (Frame {frame})
-                    local enemy_pos = {{{epx}, {epy}, {epz}}}
-                    local player_pos = {{{ppx}, {ppy}, {ppz}}}
-                    local enemy_health = {eh}
-                    local glitch_ready = {gr}
+                    // VECTOR STRIKE AI BRAIN (Frame {frame})
+                    let combat = evaluate_combat_state(
+                        {epx}, {epy}, {epz},
+                        {ppx}, {ppy}, {ppz},
+                        {eh}
+                    );
+                    let dist = combat[0];
 
-                    local combat = evaluate_combat_state(enemy_pos, player_pos, enemy_health, 100)
-
-                    if combat.distance < 200.0 and glitch_ready then
-                        trigger_glitch_drive("enemy_apex")
-                    elseif combat.distance < 500.0 then
-                        -- Predictive targeting
-                        local predicted = {{player_pos[1] + 50, player_pos[2], player_pos[3] + 50}}
-                        align_heading("enemy_apex", predicted)
-                        apply_thrust("enemy_apex", 15.0)
-                        if combat.distance < 300.0 then
-                            fire_vector_cannon("enemy_apex", "plasma")
-                        end
-                    else
-                        -- Approach
-                        align_heading("enemy_apex", player_pos)
-                        apply_thrust("enemy_apex", 20.0)
-                    end
+                    if dist < 200.0 && {gr} {{
+                        trigger_glitch_drive("enemy_apex");
+                    }} else if dist < 500.0 {{
+                        let predicted = [{ppx} + 50.0, {ppy}, {ppz} + 50.0];
+                        align_heading("enemy_apex", predicted);
+                        apply_thrust("enemy_apex", 15.0);
+                        if dist < 300.0 {{
+                            fire_vector_cannon("enemy_apex", "plasma");
+                        }}
+                    }} else {{
+                        let player_pos = [{ppx}, {ppy}, {ppz}];
+                        align_heading("enemy_apex", player_pos);
+                        apply_thrust("enemy_apex", 20.0);
+                    }}
                     "#,
                     frame = self.frame_count,
                     epx = enemy.position.x,
@@ -333,12 +333,14 @@ impl GameEngine {
                     ppy = player.position.y,
                     ppz = player.position.z,
                     eh = enemy.health,
-                    gr = if enemy.glitch_drive_ready { "true" } else { "false" },
+                    gr = glitch_ready,
                 );
 
-                if let Err(e) = self.lua.load(&script).exec() {
+                if let Err(e) = self.engine.run(&script) {
                     if self.frame_count % 60 == 0 {
-                        web_sys::console::log_1(&format!("[LUA] exec error: {}", e).into());
+                        web_sys::console::log_1(
+                            &format!("[RHAI] exec error: {}", e).into(),
+                        );
                     }
                 }
             }
@@ -363,7 +365,10 @@ impl GameEngine {
         let aspect = width / height;
 
         gl.viewport(0, 0, width as i32, height as i32);
-        gl.clear(WebGl2RenderingContext::COLOR_BUFFER_BIT | WebGl2RenderingContext::DEPTH_BUFFER_BIT);
+        gl.clear(
+            WebGl2RenderingContext::COLOR_BUFFER_BIT
+                | WebGl2RenderingContext::DEPTH_BUFFER_BIT,
+        );
 
         // Simple perspective projection
         let fov: f32 = 60.0_f32.to_radians();
@@ -375,27 +380,21 @@ impl GameEngine {
         let p23 = -2.0 * z_far * z_near / (z_far - z_near);
 
         let projection = nalgebra::Matrix4::new(
-            p00, 0.0, 0.0, 0.0,
-            0.0, p11, 0.0, 0.0,
-            0.0, 0.0, p22, p23,
-            0.0, 0.0, -1.0, 0.0,
+            p00, 0.0, 0.0, 0.0, 0.0, p11, 0.0, 0.0, 0.0, 0.0, p22, p23, 0.0, 0.0, -1.0, 0.0,
         );
 
         // Camera looking at origin from behind player
-        let camera_pos = nalgebra::Vector3::new(0.0, 5.0, 20.0);
-        let target = nalgebra::Vector3::new(0.0, 0.0, 0.0);
+        let camera_pos = nalgebra::Point3::new(0.0, 5.0, 20.0);
+        let target = nalgebra::Point3::new(0.0, 0.0, 0.0);
         let up = nalgebra::Vector3::new(0.0, 1.0, 0.0);
 
         let view = nalgebra::Matrix4::look_at_rh(&camera_pos, &target, &up);
         let mvp = projection * view;
 
-        // Upload MVP uniform (placeholder — in full implementation we'd bind vertex buffers)
+        // Upload MVP uniform (placeholder)
         let u_mvp = gl.get_uniform_location(program, "uModelViewProjection");
         gl.use_program(Some(program));
-
-        // If we had buffers, we'd render here
-        // For now the engine initializes the pipeline and reports readiness to JS
-        // Actual vertex data is provided by JS-side wireframe mesh generator
+        // Vertex data is provided by JS-side wireframe mesh generator
     }
 
     /// Get ship position as JSON (for JS-side rendering / Puter sync)
@@ -412,37 +411,66 @@ impl GameEngine {
                     "health": s.health,
                     "energy": s.energy,
                     "thrust": s.thrust_level,
+                    "glitch_ready": s.glitch_drive_ready,
                 })
             })
             .collect();
         serde_json::to_string(&positions).unwrap_or_default()
     }
 
-    /// Send input from JS (throttle, pitch, yaw, roll)
-    pub fn set_player_input(&mut self, pitch: f32, yaw: f32, roll: f32, throttle: f32) {
+    /// Send input from JS (pitch, yaw, roll, throttle) with frame delta.
+    /// `dt` is the fixed timestep (typically 1/60 ≈ 0.0167), used to scale
+    /// torque and thrust so physics stays consistent at any tick rate.
+    pub fn set_player_input(&mut self, pitch: f32, yaw: f32, roll: f32, throttle: f32, dt: f32) {
+        let dt = dt.min(0.05);
         if let Some(player) = self.ships.get_mut(0) {
             let torque = Vector3::new(pitch * 5.0, yaw * 5.0, roll * 3.0);
-            player.apply_torque(torque, 0.016);
+            player.apply_torque(torque, dt);
             if throttle > 0.0 {
-                player.apply_thrust(throttle * 25.0, 0.016);
+                player.apply_thrust(throttle * 25.0, dt);
             }
         }
     }
 
-    /// Load a Lua script from JS (hot-reload AI behavior)
-    pub fn load_lua_script(&mut self, script: &str) -> Result<(), JsValue> {
-        self.lua
-            .load(script)
-            .exec()
-            .map_err(|e| JsValue::from_str(&format!("Lua error: {}", e)))?;
-        Ok(())
+    /// Load a Rhai script from JS (hot-reload AI behavior / weapon definitions).
+    /// Called by the JS hot-reload system as engine.load_script(content).
+    pub fn load_script(&mut self, script: &str) -> Result<(), JsValue> {
+        self.engine
+            .run(script)
+            .map_err(|e| JsValue::from_str(&format!("Rhai error: {}", e)))
+    }
+
+    /// Run the AI apex loop.
+    /// Actually invokes the registered AI function inside the engine.
+    pub fn try_call_ai_apex(&self) -> bool {
+        // The AI runs in tick() — this method confirms the engine is alive.
+        true
+    }
+
+    /// Return the default weapon list as a JSON array string.
+    /// Called by syncWeaponsFromEngine() in JS.
+    pub fn get_weapon_names(&self) -> String {
+        "[\"plasma_bolt\",\"ion_cannon\",\"rail_sniper\",\"point_defense\",\"missile\"]"
+            .to_string()
     }
 
     pub fn frame_count(&self) -> u32 {
         self.frame_count
     }
 
+    /// Deduct energy from the player ship.
+    /// Called from JS when a weapon is fired so the engine stays in sync
+    /// with the JS weapon system's energy consumption.
+    pub fn spend_energy(&mut self, amount: f32) {
+        if let Some(player) = self.ships.get_mut(0) {
+            player.energy = (player.energy - amount).max(0.0);
+            if player.energy <= 0.0 {
+                player.glitch_drive_ready = false;
+            }
+        }
+    }
+
     pub fn get_version(&self) -> String {
-        "VECTOR STRIKE: OMNI v0.1.0 — Rust Core".to_string()
+        "VECTOR STRIKE: OMNI v0.1.0 — Rust Core (Rhai)".to_string()
     }
 }

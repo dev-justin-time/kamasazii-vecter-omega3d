@@ -15,6 +15,7 @@
     --neon-magenta: #ff00e6;
     --neon-orange: #ff6a00;
     --neon-green: #00ff66;
+    --neon-red: #ff2060;
     --bg-deep: #05050a;
     --bg-panel: rgba(0, 10, 30, 0.85);
     --grid-color: rgba(0, 240, 255, 0.08);
@@ -324,6 +325,206 @@ html, body {
     #briefing-overlay h1 { font-size: 24px; }
 }
 
+/* ─── Rhai Error Log ─────────────────────────────────────────────────────── */
+
+#rhai-error-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.3px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+#rhai-error-badge.rhai-error-few {
+    color: var(--warning);
+    background: rgba(255, 170, 0, 0.15);
+    border: 1px solid rgba(255, 170, 0, 0.3);
+    animation: pulse-badge 2s ease-in-out infinite;
+}
+
+#rhai-error-badge.rhai-error-many {
+    color: #ffffff;
+    background: rgba(255, 32, 64, 0.2);
+    border: 1px solid var(--neon-red);
+    animation: pulse-badge 1s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+    0%, 100% { opacity: 0.8; }
+    50% { opacity: 1; }
+}
+
+#rhai-error-panel {
+    margin-top: 4px;
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 32, 64, 0.25);
+    border-radius: 3px;
+    font-size: 8px;
+    max-height: 140px;
+    overflow-y: auto;
+    backdrop-filter: blur(4px);
+    transition: opacity 0.2s ease;
+}
+
+#rhai-error-panel.hidden {
+    display: none;
+}
+
+.rhai-error-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 3px 6px;
+    background: rgba(255, 32, 64, 0.08);
+    border-bottom: 1px solid rgba(255, 32, 64, 0.15);
+    color: var(--neon-red);
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+    font-size: 7px;
+}
+
+.rhai-error-clear {
+    margin-left: auto;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    cursor: pointer;
+    font-size: 9px;
+    padding: 0 3px;
+    line-height: 1;
+    transition: color 0.15s ease;
+}
+
+.rhai-error-clear:hover {
+    color: var(--neon-red);
+}
+
+#rhai-error-list {
+    padding: 2px 0;
+    max-height: 100px;
+    overflow-y: auto;
+}
+
+#rhai-error-list::-webkit-scrollbar {
+    width: 3px;
+}
+
+#rhai-error-list::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+#rhai-error-list::-webkit-scrollbar-thumb {
+    background: rgba(255, 32, 64, 0.3);
+    border-radius: 2px;
+}
+
+.rhai-error-empty {
+    padding: 6px 8px;
+    color: var(--text-dim);
+    font-style: italic;
+    opacity: 0.6;
+    font-size: 8px;
+}
+
+.rhai-error-entry {
+    display: flex;
+    gap: 4px;
+    padding: 2px 6px;
+    line-height: 1.5;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background 0.15s ease;
+}
+
+.rhai-error-entry:hover {
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.rhai-error-entry:last-child {
+    border-bottom: none;
+}
+
+.rhai-err-source {
+    color: var(--neon-cyan);
+    font-weight: 600;
+    white-space: nowrap;
+    min-width: 20px;
+}
+
+.rhai-err-msg {
+    color: var(--text-primary);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.rhai-err-ago {
+    color: var(--text-dim);
+    white-space: nowrap;
+    opacity: 0.6;
+    font-size: 7px;
+    flex-shrink: 0;
+}
+
+/* Category-based left-border accent */
+.rhai-err-load {
+    border-left: 2px solid var(--neon-orange);
+}
+
+.rhai-err-fetch {
+    border-left: 2px solid var(--warning);
+}
+
+.rhai-err-runtime {
+    border-left: 2px solid var(--neon-red);
+}
+
+/* ─── Hot-Reload Indicator ──────────────────────────────────────────────── */
+
+#hot-reload-indicator {
+    display: inline-block;
+    transition: color 0.3s ease, opacity 0.3s ease;
+    letter-spacing: 0.5px;
+}
+
+#hot-reload-indicator.hr-idle {
+    color: var(--text-dim);
+    opacity: 0.5;
+}
+
+#hot-reload-indicator.hr-watching {
+    color: var(--neon-green);
+    opacity: 0.8;
+}
+
+#hot-reload-indicator.hr-reloaded {
+    color: var(--neon-cyan);
+    opacity: 1;
+    animation: hr-flash 0.8s ease-out;
+}
+
+@keyframes hr-flash {
+    0% { color: #ffffff; text-shadow: 0 0 12px var(--neon-cyan); }
+    50% { color: var(--neon-cyan); text-shadow: 0 0 6px var(--neon-cyan); }
+    100% { color: var(--neon-green); text-shadow: none; }
+}
+
+@keyframes hr-error {
+    0% { color: #ffffff; text-shadow: 0 0 12px var(--neon-red); }
+    50% { color: var(--neon-red); }
+    100% { color: var(--text-dim); text-shadow: none; }
+}
+
+#hot-reload-indicator.hr-error {
+    color: var(--neon-red);
+    animation: hr-error 1.5s ease-out;
+}
+
 /* ─── Animations ─────────────────────────────────────────────────────────── */
 
 @keyframes pulse-dot {
@@ -389,4 +590,200 @@ html, body {
     font-size: 12px;
     letter-spacing: 2px;
     text-transform: uppercase;
+}
+
+/* ─── Virtual Joystick (Touch Steering Indicator) ──────────── */
+
+#joystick-base {
+    position: absolute;
+    width: 100px;
+    height: 100px;
+    /* Anchor for crosshair pseudo-elements */
+    isolation: isolate;
+    border-radius: 50%;
+    border: 1.5px solid rgba(0, 240, 255, 0.2);
+    background: rgba(0, 240, 255, 0.03);
+    pointer-events: none;
+    z-index: 15;
+    transform: translate(-50%, -50%);
+    transition: opacity 0.15s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+#joystick-base.joystick-hidden {
+    opacity: 0;
+}
+
+#joystick-base.joystick-visible {
+    opacity: 1;
+}
+
+/* Crosshair center indicator — subtle + shape for directional precision */
+#joystick-base::before,
+#joystick-base::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+}
+
+/* Horizontal line */
+#joystick-base::before {
+    width: 40%;
+    height: 1px;
+    background: linear-gradient(90deg,
+        transparent 15%,
+        rgba(0, 240, 255, 0.35) 35%,
+        rgba(0, 240, 255, 0.45) 50%,
+        rgba(0, 240, 255, 0.35) 65%,
+        transparent 85%
+    );
+    border-radius: 1px;
+}
+
+/* Vertical line */
+#joystick-base::after {
+    width: 1px;
+    height: 40%;
+    background: linear-gradient(180deg,
+        transparent 15%,
+        rgba(0, 240, 255, 0.35) 35%,
+        rgba(0, 240, 255, 0.45) 50%,
+        rgba(0, 240, 255, 0.35) 65%,
+        transparent 85%
+    );
+    border-radius: 1px;
+}
+
+
+
+#joystick-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(0, 240, 255, 0.25);
+    border: 1.5px solid rgba(0, 240, 255, 0.4);
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.15);
+    transition: transform 0.05s ease-out;
+    /* Position is set via JS transform on this element */
+    will-change: transform;
+    z-index: 1;
+}
+
+/* Hide joystick on desktop (same as fire button) */
+@media (hover: hover) and (pointer: fine) {
+    #joystick-base {
+        display: none;
+    }
+}
+
+/* Slightly smaller on narrow screens */
+@media (max-width: 768px) {
+    #joystick-base {
+        width: 84px;
+        height: 84px;
+    }
+    #joystick-thumb {
+        width: 15px;
+        height: 15px;
+    }
+}
+
+@media (max-width: 420px) {
+    #joystick-base {
+        width: 76px;
+        height: 76px;
+    }
+    #joystick-thumb {
+        width: 13px;
+        height: 13px;
+    }
+}
+
+/* ─── Fire Button (Mobile Touch) ──────────────────────────── */
+
+#fire-btn {
+    position: absolute;
+    bottom: 90px;
+    right: 20px;
+    width: 80px;
+    height: 80px;
+    border-radius: 50%;
+    background: rgba(0, 240, 255, 0.08);
+    border: 2px solid rgba(0, 240, 255, 0.35);
+    color: var(--neon-cyan);
+    cursor: pointer;
+    pointer-events: auto;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 20;
+    box-shadow: 0 0 12px rgba(0, 240, 255, 0.12);
+    transition: all 0.1s ease;
+    font-family: inherit;
+    outline: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#fire-btn .fire-btn-icon {
+    font-size: 24px;
+    line-height: 1;
+    margin-bottom: 1px;
+}
+
+#fire-btn .fire-btn-label {
+    font-size: 8px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    opacity: 0.7;
+}
+
+/* Pressed / held state */
+#fire-btn:active,
+#fire-btn.fire-active {
+    background: rgba(0, 240, 255, 0.25);
+    border-color: var(--neon-cyan);
+    box-shadow: 0 0 28px rgba(0, 240, 255, 0.5);
+    transform: scale(0.9);
+}
+
+/* Hide on desktop with a mouse (fine pointer + hover = not touch) */
+@media (hover: hover) and (pointer: fine) {
+    #fire-btn {
+        display: none;
+    }
+}
+
+/* Smaller fire button on narrow screens */
+@media (max-width: 768px) {
+    #fire-btn {
+        bottom: 80px;
+        right: 16px;
+        width: 72px;
+        height: 72px;
+    }
+    #fire-btn .fire-btn-icon {
+        font-size: 20px;
+    }
+}
+
+/* Even smaller on very narrow phones */
+@media (max-width: 420px) {
+    #fire-btn {
+        bottom: 70px;
+        right: 12px;
+        width: 64px;
+        height: 64px;
+    }
+    #fire-btn .fire-btn-icon {
+        font-size: 18px;
+    }
 }

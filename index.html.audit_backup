@@ -32,11 +32,11 @@
         <button class="enter-btn" id="enter-btn" disabled>INITIALIZING...</button>
     </div>
 
-    <!-- ═══ CSS Grid Fallback (decorative) ═══ -->
-    <div id="css-grid" aria-hidden="true"></div>
+    <!-- ═══ CSS Grid Fallback ═══ -->
+    <div id="css-grid"></div>
 
-    <!-- ═══ Scanline Effect (decorative) ═══ -->
-    <div class="scanline" aria-hidden="true"></div>
+    <!-- ═══ Scanline Effect ═══ -->
+    <div class="scanline"></div>
 
     <!-- ═══ WebGL Canvas ═══ -->
     <canvas id="gameCanvas"></canvas>
@@ -73,10 +73,6 @@
             <div class="stat-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(0,240,255,0.1);">
                 <span class="stat-label">GLITCH DRIVE</span>
                 <span class="stat-value" id="glitch-status" style="color: var(--text-dim)">STANDBY</span>
-            </div>
-            <div class="stat-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(0,240,255,0.1); font-size: 10px;">
-                <span class="stat-label">POSITION</span>
-                <span class="stat-value" id="pos-display" style="font-size: 10px; letter-spacing: 0.5px;">--, --, --</span>
             </div>
         </div>
 
@@ -124,17 +120,6 @@
                 <div id="rhai-error-list"></div>
             </div>
         </div>
-
-        <!-- Fire Button (Mobile Touch) -->
-        <button id="fire-btn" aria-label="Fire weapon">
-            <span class="fire-btn-icon">⚡</span>
-            <span class="fire-btn-label">FIRE</span>
-        </button>
-
-        <!-- Virtual Joystick (Touch Steering Indicator) -->
-        <div id="joystick-base" class="joystick-hidden">
-            <div id="joystick-thumb"></div>
-        </div>
     </div>
 
     <!-- ═══ Wasm + JS Engine ═══ -->
@@ -143,15 +128,17 @@
         const CONFIG = {
             wsUrl: `ws://${location.hostname}:8080/ws`,
             useWasm: true,          // WASM engine is built and ready
+            usePuter: true,
+            useWebGL: true,
             playerName: `pilot_${Math.random().toString(36).slice(2, 8)}`,
-            // Hot-reload — polls scripts/ for changes and re-loads into the
-            // engine via load_script(). Disable in production.
+            // Rhai hot-reload — polls .rhai files for changes so edits take
+            // effect without reloading the page. Disable in production.
             hotReload: {
                 enabled: true,
                 intervalMs: 1500,    // check every 1.5s
                 scripts: [
-                    { name: 'weapons.rhai', path: './scripts/weapons.rhai' },
-                    { name: 'ai_apex.rhai', path: './scripts/ai_apex.rhai' },
+                    { name: 'weapons.lua',  path: './scripts/weapons.lua' },
+                    { name: 'ai_apex.lua',  path: './scripts/ai_apex.lua' },
                 ],
             },
         };
@@ -174,7 +161,6 @@
             heatVal: $('heat-value'),
             heatBar: $('heat-bar'),
             glitchStatus: $('glitch-status'),
-            posDisplay: $('pos-display'),
             missionText: $('mission-text'),
             scoreVal: $('score-value'),
             weaponName: $('weapon-name'),
@@ -190,12 +176,11 @@
             rhaiErrorHeaderCount: $('rhai-error-header-count'),
             rhaiErrorList: $('rhai-error-list'),
             rhaiErrorClear: $('rhai-error-clear-btn'),
-            fireBtn: $('fire-btn'),
         };
 
-        // ─── Weapon Definitions ────────────────────────────────────
-        // Mirrors the weapon data that would come from engine scripts.
-        // The order here defines the cycle order (Tab / number keys).
+        // ─── Weapon Definitions (mirrors weapons.rhai) ────────────────
+        // Each weapon has stats loaded from the Rhai script. The order here
+        // defines the cycle order when pressing Tab / number keys.
         const WEAPON_DEFS = {
             plasma_bolt: {
                 display_name: 'Plasma Bolt',
@@ -397,10 +382,10 @@ if (elements.rhaiErrorClear) {
 }
 
 /**
- * Intercept console.error to capture engine script runtime errors.
- * The Rust side calls console.error() via web_sys when engine operations
- * fail. We intercept messages that match script-related patterns and
- * surface them in the HUD error log.
+ * Intercept console.error to capture Rust-engine Rhai runtime errors.
+ * The Rust side calls console.error() via web_sys when engine.try_call_ai_apex()
+ * or other Rhai operations fail. We intercept those messages that match
+ * Rhai-related patterns and surface them in the HUD error log.
  */
 function installRhaiConsoleInterceptor() {
     const origError = console.error;
@@ -408,34 +393,28 @@ function installRhaiConsoleInterceptor() {
         const args = Array.from(arguments);
         const joined = args.map(a => String(a)).join(' ');
 
-        // Check if this is a script-related error from the Rust engine.
-        // Patterns cover both Lua and Rhai engines since the compiled
-        // WASM may come from either iteration.
-        const isScriptError =
-            // Engine tags and known error patterns
-            joined.includes('[ENGINE]') ||
-            joined.includes('[SCRIPT]') ||
-            joined.includes('[LUA]') ||
+        // Check if this is a Rhai-related error message from the Rust engine
+        const isRhaiError =
             joined.includes('[RHAI]') ||
             joined.includes('[RHAI ERROR]') ||
+            joined.includes('Engine:') && joined.includes('error') ||
             joined.includes('try_call_ai_apex') ||
-            joined.includes('engine.load_script') ||
-            joined.includes('engine.load_lua_script') ||
+            joined.includes('load_script') ||
             joined.includes('run_with_scope') ||
             joined.includes('eval_expression') ||
-            joined.includes('Evaluation error') ||
+            joined.includes('Rhai') ||
             joined.includes('Function not found') ||
             joined.includes('ErrorFunctionNotFound') ||
             joined.includes('Syntax error') ||
             joined.includes('Script error');
 
-        if (isScriptError) {
+        if (isRhaiError) {
             // Extract source: look for a filename pattern or use 'engine'
             let source = 'engine';
             for (const arg of args) {
                 const s = String(arg);
-                if (s.includes('.lua') || s.includes('.rhai')) {
-                    const match = s.match(/\b([\w_-]+\.(?:lua|rhai))\b/);
+                if (s.includes('.rhai')) {
+                    const match = s.match(/\b([\w_-]+\.rhai)\b/);
                     if (match) source = match[1];
                     break;
                 }
@@ -460,7 +439,6 @@ function installRhaiConsoleInterceptor() {
             glitchReady: true,
             weapon: 'plasma_bolt',
             running: false,
-            engine: null,         // Wasm GameEngine instance (may be null)
             ws: null,
             puterReady: false,
             // Weapon system state
@@ -683,131 +661,6 @@ function installRhaiConsoleInterceptor() {
             }
         });
         document.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
-
-        // ─── Touch / Pointer Input (Mobile + Desktop) ──────────────────
-        // Drag anywhere on the canvas to control pitch/yaw.
-        // A quick tap (< 250ms, < 20px movement) fires the current weapon.
-        // When pointer is active, touch input overrides keyboard for pitch/yaw
-        // and auto-engages throttle. Keyboard roll (Q/E) is suppressed on touch.
-
-        const pointer = {
-            active: false,
-            startX: 0, startY: 0,
-            x: 0, y: 0,
-            startTime: 0,
-            tapped: false,   // set on short tap, consumed in fixedUpdate
-            firePressed: false, // dedicated fire button hold state
-        };
-
-        // ─── Virtual Joystick DOM ──────────────────────────────────────
-        const joystickBase = $('#joystick-base');
-        const joystickThumb = $('#joystick-thumb');
-        // Hardcoded to match CSS: base is 100px, so radius = 50, thumb stays at 70% = 35
-        const JOYSTICK_CLAMP = 35;
-
-        function showJoystick(startX, startY) {
-            if (!joystickBase || !joystickThumb) return;
-            joystickBase.style.left = startX + 'px';
-            joystickBase.style.top = startY + 'px';
-            joystickBase.className = 'joystick-visible';
-            joystickThumb.style.transform = 'translate(0, 0)';
-        }
-
-        function moveJoystickThumb(clientX, clientY, startX, startY) {
-            if (!joystickThumb) return;
-            const dx = clientX - startX;
-            const dy = clientY - startY;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            if (dist > JOYSTICK_CLAMP) {
-                const s = JOYSTICK_CLAMP / dist;
-                joystickThumb.style.transform = 'translate(' + (dx * s) + 'px, ' + (dy * s) + 'px)';
-            } else {
-                joystickThumb.style.transform = 'translate(' + dx + 'px, ' + dy + 'px)';
-            }
-        }
-
-        function hideJoystick() {
-            if (!joystickBase) return;
-            joystickBase.className = 'joystick-hidden';
-            if (joystickThumb) joystickThumb.style.transform = 'translate(0, 0)';
-        }
-
-        function onPointerDown(e) {
-            e.preventDefault();
-            pointer.active = true;
-            pointer.startX = e.clientX;
-            pointer.startY = e.clientY;
-            pointer.x = e.clientX;
-            pointer.y = e.clientY;
-            pointer.startTime = performance.now();
-            pointer.tapped = false;
-            canvas.setPointerCapture(e.pointerId);
-            // Show joystick at touch origin (only on coarse pointer = touch devices)
-            if (window.matchMedia('(pointer: coarse)').matches) {
-                showJoystick(e.clientX, e.clientY);
-            }
-        }
-
-        function onPointerMove(e) {
-            if (!pointer.active) return;
-            pointer.x = e.clientX;
-            pointer.y = e.clientY;
-            // Update joystick thumb — only writes one DOM property on move
-            if (window.matchMedia('(pointer: coarse)').matches) {
-                moveJoystickThumb(e.clientX, e.clientY, pointer.startX, pointer.startY);
-            }
-        }
-
-        function onPointerUp(e) {
-            e.preventDefault();
-            const held = performance.now() - pointer.startTime;
-            const dx = Math.abs(e.clientX - pointer.startX);
-            const dy = Math.abs(e.clientY - pointer.startY);
-            // Quick tap with minimal movement = fire
-            if (held < 250 && dx < 20 && dy < 20) {
-                pointer.tapped = true;
-            }
-            pointer.active = false;
-            try { canvas.releasePointerCapture(e.pointerId); } catch (_) {}
-            hideJoystick();
-        }
-
-        canvas.addEventListener('pointerdown', onPointerDown);
-        canvas.addEventListener('pointermove', onPointerMove);
-        canvas.addEventListener('pointerup', onPointerUp);
-        canvas.addEventListener('pointercancel', onPointerUp);
-
-        // pointercancel maps to onPointerUp which calls hideJoystick()
-
-        // ─── Dedicated Fire Button (Mobile) ────────────────────────────
-        // A large circular button positioned bottom-right that fires while held.
-        // Uses pointer events so it works on both touch and mouse.
-        // The button has its own pointer-events: auto (HUD has none by default).
-        // Does NOT interfere with the canvas drag-to-aim gesture.
-        const fireButton = elements.fireBtn;
-        if (fireButton) {
-            fireButton.addEventListener('pointerdown', (e) => {
-                e.preventDefault();
-                pointer.firePressed = true;
-                fireButton.classList.add('fire-active');
-                // Capture so pointerup fires even if finger slides off
-                fireButton.setPointerCapture(e.pointerId);
-            });
-            fireButton.addEventListener('pointerup', (e) => {
-                e.preventDefault();
-                pointer.firePressed = false;
-                fireButton.classList.remove('fire-active');
-                try { fireButton.releasePointerCapture(e.pointerId); } catch (_) {}
-            });
-            fireButton.addEventListener('pointerleave', () => {
-                pointer.firePressed = false;
-                fireButton.classList.remove('fire-active');
-            });
-            fireButton.addEventListener('pointercancel', () => {
-                pointer.firePressed = false;
-                fireButton.classList.remove('fire-active');
-            });
-        }
 
         // ─── WebSocket Multiplayer Client ────────────────────────────────
 
@@ -1055,23 +908,22 @@ function installRhaiConsoleInterceptor() {
             }
         }
 
-        // ─── Script Hot-Reload ───────────────────────────────────────
-        // Polls script files (e.g. weapons.rhai) for changes and re-loads
-        // them into the engine without requiring a full page refresh.
-        // Each file's content is cached and compared on each poll cycle.
+        // ─── Rhai Hot-Reload ─────────────────────────────────────────────
+        // Polls .rhai files for changes and re-loads them into the engine
+        // without requiring a full page refresh. Each file's content is
+        // cached and compared on each poll cycle.
         //
         // When weapons.rhai is hot-reloaded, the JS weapon system is
         // automatically re-synced via syncWeaponsFromEngine().
         //
-        // To trigger a manual re-load: call the stop() function returned
-        // by startRhaiHotReload(), then call startRhaiHotReload(engine)
-        // again, or edit any watched script file on disk.
+        // To trigger a manual re-load: call stopHotReload() then
+        // startRhaiHotReload(engine) again, or edit any .rhai file on disk.
 
         let _hotReloadTimer = null;
         let _hotReloadCache = new Map();  // path -> content string
 
         /**
-         * Start polling the configured script files for changes.
+         * Start polling the configured .rhai scripts for changes.
          * @param {object} engine - Rust GameEngine instance (may be null)
          * @returns {function} stop() — call to halt polling
          */
@@ -1290,29 +1142,10 @@ function installRhaiConsoleInterceptor() {
 
         function fixedUpdate(dt) {
             // Read keyboard input
-            const kPitch = (keys['w'] ? -0.5 : 0) + (keys['s'] ? 0.5 : 0);
-            const kYaw = (keys['a'] ? -0.5 : 0) + (keys['d'] ? 0.5 : 0);
-            const kRoll = (keys['q'] ? -0.5 : 0) + (keys['e'] ? 0.5 : 0);
-            const kThrottle = (keys['shift'] || keys['w']) ? 0.8 : 0;
-
-            // Read touch/pointer input — drag offset mapped to normalized -1..1
-            // Sensitivity divisor: ~35% of viewport dimension = full deflection
-            const tPitch = pointer.active
-                ? -Math.max(-1, Math.min(1, (pointer.y - pointer.startY) / (window.innerHeight * 0.35)))
-                : 0;
-            const tYaw = pointer.active
-                ? Math.max(-1, Math.min(1, (pointer.x - pointer.startX) / (window.innerWidth * 0.35)))
-                : 0;
-
-            // Blend: touch overrides keyboard when a pointer is active
-            const pitch = pointer.active ? tPitch : kPitch;
-            const yaw = pointer.active ? tYaw : kYaw;
-            const roll = pointer.active ? 0 : kRoll;   // no roll on touch
-            const throttle = pointer.active ? 0.8 : kThrottle;
-
-            // Fire weapon: spacebar key OR touch/pointer tap OR fire button hold
-            const wantsFire = keys[' '] || pointer.tapped || pointer.firePressed;
-            pointer.tapped = false;  // consume tap flag (firePressed stays while held)
+            const pitch = (keys['w'] ? -0.5 : 0) + (keys['s'] ? 0.5 : 0);
+            const yaw = (keys['a'] ? -0.5 : 0) + (keys['d'] ? 0.5 : 0);
+            const roll = (keys['q'] ? -0.5 : 0) + (keys['e'] ? 0.5 : 0);
+            const throttle = (keys['shift'] || keys['w']) ? 0.8 : 0;
 
             // Send to server
             sendInput(pitch, yaw, roll, throttle);
@@ -1324,33 +1157,6 @@ function installRhaiConsoleInterceptor() {
                 setTimeout(() => { state.glitchReady = true; }, 8000);
             }
 
-            // ─── WASM Engine Tick ────────────────────────────────────
-            // Pipe player input into the Rust engine's physics, then run
-            // the full tick: physics integration + inline Rhai AI execution.
-            if (state.engine) {
-                state.engine.set_player_input(pitch, yaw, roll, throttle, dt);
-                state.engine.tick(dt);
-
-                // ─── Sync HUD from Rust Engine ───────────────────────
-                // Read authoritative ship state from the engine and update
-                // the JS HUD (health, energy, position, glitch status).
-                try {
-                    const shipData = JSON.parse(state.engine.get_ship_positions());
-                    const player = shipData.find(s => s.id === 'player_1');
-                    if (player) {
-                        state.health = player.health;
-                        state.energy = player.energy;
-                        state.glitchReady = !!player.glitch_ready;
-                        if (elements.posDisplay) {
-                            elements.posDisplay.textContent =
-                                Math.round(player.x) + ', ' +
-                                Math.round(player.y) + ', ' +
-                                Math.round(player.z);
-                        }
-                    }
-                } catch (_) { /* silent — parsing errors are non-critical */ }
-            }
-
             // ─── Weapon System ───────────────────────────────────────
             // Tick down all cooldowns
             for (const key of WEAPON_ORDER) {
@@ -1359,8 +1165,8 @@ function installRhaiConsoleInterceptor() {
                 }
             }
 
-            // Fire current weapon on spacebar or touch/pointer tap (resource-gated)
-            if (wantsFire) {
+            // Fire current weapon on spacebar (resource-gated)
+            if (keys[' ']) {
                 const def = WEAPON_DEFS[state.weapon];
                 const cd = state.weaponCooldowns[state.weapon] || 0;
 
@@ -1369,10 +1175,6 @@ function installRhaiConsoleInterceptor() {
                     state.energy -= def.energy_cost;
                     state.heat = Math.min(100, state.heat + def.heat_generation);
                     state.weaponCooldowns[state.weapon] = def.cooldown;
-                    // Keep the Rust engine's energy in sync with JS-side weapon fire
-                    if (state.engine && typeof state.engine.spend_energy === 'function') {
-                        state.engine.spend_energy(def.energy_cost);
-                    }
                     sendFire(state.weapon);
 
                     if (def.homing) {
@@ -1381,7 +1183,13 @@ function installRhaiConsoleInterceptor() {
                 }
             }
 
-            // Heat dissipation (JS-side only — engine doesn't track heat)
+            // Simulate local HUD changes (server will override)
+            if (state.health < 100 && Math.random() < 0.01) {
+                state.health = Math.min(100, state.health + 0.5);
+            }
+            if (state.energy < 100) {
+                state.energy = Math.min(100, state.energy + 2 * dt);
+            }
             if (state.heat > 0) {
                 state.heat = Math.max(0, state.heat - 15 * dt);
             }
@@ -1442,21 +1250,15 @@ function installRhaiConsoleInterceptor() {
 
         // 5. Try loading Wasm engine
             const wasmEngine = await loadWasmEngine();
-            state.engine = wasmEngine;
 
-            // Display engine version
-            elements.engineVer.textContent = wasmEngine
-                ? wasmEngine.get_version()
-                : 'v0.1.0 (JS fallback)';
-
-            // 6. Sync weapon definitions from the engine's internal data
+            // 5. Sync weapon definitions from engine (weapons.rhai data)
             syncWeaponsFromEngine(wasmEngine);
-            // Periodically re-sync every 30s in case of hot-reload
+            // Periodically re-sync from engine every 30s in case of hot-reload
             if (wasmEngine) {
                 setInterval(() => syncWeaponsFromEngine(wasmEngine), 30000);
             }
 
-            // 7. Start hot-reload (polls scripts/ for changes and re-loads into engine)
+            // 6. Start Rhai hot-reload (polls .rhai files for changes)
             window.__stopHotReload = startRhaiHotReload(wasmEngine);
 
             // 7. Try loading saved loadout
