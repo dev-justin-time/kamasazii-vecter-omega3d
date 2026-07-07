@@ -790,6 +790,8 @@ function installRhaiConsoleInterceptor() {
                 e.preventDefault();
                 pointer.firePressed = true;
                 fireButton.classList.add('fire-active');
+                // Brief haptic pulse on mobile devices that support it
+                if (navigator.vibrate) navigator.vibrate(20);
                 // Capture so pointerup fires even if finger slides off
                 fireButton.setPointerCapture(e.pointerId);
             });
