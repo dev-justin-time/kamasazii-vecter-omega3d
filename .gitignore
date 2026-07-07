@@ -6,3 +6,6 @@ desktop.ini
 # Editor
 .vscode/
 .idea/
+
+# Rust build artifacts
+target/
