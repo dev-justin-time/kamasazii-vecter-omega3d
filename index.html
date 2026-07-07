@@ -232,6 +232,15 @@
                     { name: 'ai_apex.rhai', path: './scripts/ai_apex.rhai' },
                 ],
             },
+            // Client error reporting — Puter FS log is always on (when
+            // Puter is available). Set analytics.enabled = true and
+            // provide an endpoint to also POST each error to a remote
+            // collector (the POST is fire-and-forget with keepalive so
+            // it survives page unload).
+            analytics: {
+                enabled: false,
+                endpoint: null,
+            },
         };
 
         // ─── DOM References ──────────────────────────────────────────────
@@ -286,6 +295,152 @@
             syncIcon: $('sync-icon'),
             syncText: $('sync-text')
         };
+
+        // ─── Client Error Logger ────────────────────────────────────────
+        // Catches window.onerror + unhandledrejection, dedupes within a 5s
+        // window, buffers up to 50 entries, and posts to Puter FS (date-
+        // bucketed JSONL at /VectorStrike_Logs/errors-YYYY-MM-DD.jsonl)
+        // plus an optional analytics endpoint (CONFIG.analytics.endpoint).
+        //
+        // Flush is debounced (2s after the last new error, or when the
+        // buffer hits 20 entries) and re-tries on Puter-not-ready.
+        // Logging itself never throws — the app must not die because
+        // telemetry failed. Exposed as ClientErrorLogger so call sites
+        // (e.g. Wasm init) can report explicitly.
+
+        const ClientErrorLogger = (() => {
+            const MAX_BUFFER = 50;
+            const FLUSH_BATCH = 20;
+            const DEDUP_WINDOW_MS = 5000;
+            const FLUSH_DEBOUNCE_MS = 2000;
+            const seen = new Map();   // key -> ts (for dedup)
+            const buffer = [];
+            let flushTimer = null;
+            let flushing = false;     // re-entrancy guard for concurrent flushes
+            let analyticsCfg = { enabled: false, endpoint: null };
+
+            function makeKey(kind, message) {
+                return kind + '|' + String(message || '').slice(0, 200);
+            }
+            function isDuplicate(kind, message) {
+                const key = makeKey(kind, message);
+                const last = seen.get(key);
+                const now = Date.now();
+                // Periodically prune the seen map so it doesn't grow forever
+                if (seen.size > 200) {
+                    for (const [k, t] of seen) {
+                        if (now - t > DEDUP_WINDOW_MS * 4) seen.delete(k);
+                    }
+                }
+                if (last && (now - last) < DEDUP_WINDOW_MS) {
+                    seen.set(key, now);
+                    return true;
+                }
+                seen.set(key, now);
+                return false;
+            }
+            function report(kind, err, source) {
+                let message = 'unknown';
+                let stack = null;
+                if (err) {
+                    if (typeof err === 'string') message = err;
+                    else if (err.message) message = err.message;
+                    else if (err.reason) message = String(err.reason);
+                    else message = String(err);
+                    stack = err.stack || null;
+                }
+                if (isDuplicate(kind, message)) return;
+                const entry = {
+                    ts: new Date().toISOString(),
+                    kind,
+                    message: String(message).slice(0, 1000),
+                    source: source || null,
+                    stack: stack ? String(stack).slice(0, 4000) : null,
+                    url: location.href,
+                    userAgent: navigator.userAgent,
+                };
+                buffer.push(entry);
+                if (buffer.length > MAX_BUFFER) buffer.shift();
+                // Forward to console for dev visibility
+                console.error('[CLIENT-ERROR]', kind, entry.message, source || '');
+                // Optional analytics POST (fire-and-forget, survives unload)
+                if (analyticsCfg.enabled && analyticsCfg.endpoint) {
+                    try {
+                        fetch(analyticsCfg.endpoint, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(entry),
+                            keepalive: true,
+                        }).catch(() => {});
+                    } catch (_) {}
+                }
+                scheduleFlush();
+            }
+            function scheduleFlush() {
+                if (flushTimer || flushing) return;
+                if (buffer.length >= FLUSH_BATCH) { flush(); return; }
+                flushTimer = setTimeout(flush, FLUSH_DEBOUNCE_MS);
+            }
+            async function flush() {
+                flushTimer = null;
+                if (flushing) return;        // another flush is in flight
+                if (buffer.length === 0) return;
+                if (typeof puter === 'undefined' || !puter || !puter.fs) return;
+                const ready = (typeof state !== 'undefined' && state && state.puterReady);
+                if (!ready) { scheduleFlush(); return; }
+                flushing = true;
+                try {
+                    const toFlush = buffer.splice(0, buffer.length);
+                    const date = new Date().toISOString().slice(0, 10);
+                    const logPath = '/VectorStrike_Logs/errors-' + date + '.jsonl';
+                    const newContent = toFlush.map(e => JSON.stringify(e)).join('\n') + '\n';
+                    let existing = '';
+                    try {
+                        const file = await puter.fs.read(logPath);
+                        if (file && typeof file.text === 'function') existing = await file.text();
+                    } catch (_) { /* file doesn't exist yet — fine */ }
+                    const blob = new Blob([existing + newContent], { type: 'text/plain' });
+                    await puter.fs.write(logPath, blob);
+                } catch (e) {
+                    // Put the flushed batch back so we don't lose errors
+                    buffer.unshift(...toFlush);
+                    console.warn('[CLIENT-ERROR] Puter FS write failed:', e);
+                } finally {
+                    flushing = false;
+                    // If new entries arrived during the flush, schedule another
+                    if (buffer.length > 0) scheduleFlush();
+                }
+            }
+            function install() {
+                // Safe to call before CONFIG is defined — re-read each call
+                if (typeof CONFIG !== 'undefined' && CONFIG && CONFIG.analytics) {
+                    analyticsCfg = CONFIG.analytics;
+                }
+                if (window.__clientErrorLogger_installed) return;
+                window.__clientErrorLogger_installed = true;
+                // Capture phase = true so resource-load failures
+                // (script/img/link/wasm-streaming) bubble to us. The target
+                // check skips the synthetic 'error' events that already
+                // fired on window itself, so we don't double-report.
+                window.addEventListener('error', (e) => {
+                    if (e && e.target && e.target !== window) {
+                        const t = e.target;
+                        const tag = (t.tagName || 'resource').toLowerCase();
+                        const src = t.src || t.href || null;
+                        report('resource', new Error('Failed to load ' + tag + (src ? ': ' + src : '')),
+                            tag + (src ? ' (' + src + ')' : null));
+                        return;
+                    }
+                    report('error', (e && (e.error || e.message)) || e,
+                        e && e.filename ? e.filename + ':' + e.lineno + ':' + e.colno : null);
+                }, true);
+                window.addEventListener('unhandledrejection', (e) => {
+                    report('rejection', e && e.reason, 'promise');
+                });
+            }
+            return { install, report, flush };
+        })();
+        ClientErrorLogger.install();
 
         // ─── Weapon Definitions ────────────────────────────────────
         // Mirrors the weapon data that would come from engine scripts.
@@ -2232,9 +2387,17 @@ function installRhaiConsoleInterceptor() {
                 await wasm.default();
                 const engine = new wasm.GameEngine();
                 console.log('[WASM] Engine initialized:', engine.get_version());
+                state.wasmLoadOk = true;
+                state.wasmLoadError = null;
                 return engine;
             } catch (e) {
                 console.warn('[WASM] Failed to load:', e);
+                state.wasmLoadOk = false;
+                state.wasmLoadError = e?.message ?? String(e);
+                // Report via the client error logger (Puter FS + optional
+                // analytics). Wrapped in try/catch so a logging failure
+                // can't mask the underlying Wasm error.
+                try { ClientErrorLogger.report('wasm', e, 'loadWasmEngine'); } catch (_) {}
                 return null;
             }
         }
@@ -2281,10 +2444,28 @@ function installRhaiConsoleInterceptor() {
             const wasmEngine = await loadWasmEngine();
             state.engine = wasmEngine;
 
-            // Display engine version
-            elements.engineVer.textContent = wasmEngine
-                ? wasmEngine.get_version()
-                : 'v0.1.0 (JS fallback)';
+            // Display engine version — surface Wasm failure to the HUD
+            if (wasmEngine) {
+                elements.engineVer.textContent = wasmEngine.get_version();
+                elements.engineVer.style.color = '';
+                elements.engineVer.title = 'Rust/Wasm engine loaded OK';
+            } else {
+                elements.engineVer.textContent = 'WASM FAILED \u2192 JS fallback';
+                elements.engineVer.style.color = 'var(--neon-red)';
+                elements.engineVer.title = state.wasmLoadError
+                    || 'WebAssembly engine failed to load \u2014 running in degraded JS mode';
+                // If the loading screen is still visible, update its text
+                const lt = elements.loading
+                    ? elements.loading.querySelector('.loading-text') : null;
+                if (lt) lt.textContent = 'WASM core failed \u2014 running in JS fallback mode';
+                // Also surface in the briefing overlay so users see it
+                // before clicking ENTER (engine-version is 9px corner text)
+                if (elements.briefingText) {
+                    elements.briefingText.textContent =
+                        'WASM engine failed to load \u2014 some physics and weapon systems may be unavailable. ' +
+                        'Continuing in JS fallback mode. Check Puter FS /VectorStrike_Logs/ for the error report.';
+                }
+            }
 
             // 6. Sync weapon definitions from the engine's internal data
             syncWeaponsFromEngine(wasmEngine);
@@ -2321,6 +2502,8 @@ function installRhaiConsoleInterceptor() {
         // ─── Start ───────────────────────────────────────────────────────
         init().catch((e) => {
             console.error('[INIT] Fatal error:', e);
+            // Report fatal init failure via the client error logger.
+            try { ClientErrorLogger.report('init', e, 'init()'); } catch (_) {}
             elements.loading.classList.add('hidden');
             elements.briefingText.textContent =
                 'System initialization failed. Proceed with legacy protocols.';

@@ -560,3 +560,72 @@
     50%      { border-color: rgba(0, 240, 255, 0.4); }
 }
 .ss-build-row.ss-build-active { animation: ss-pulse-border 2s ease-in-out infinite; }
+
+/* ============================================================================
+ * KAMIKAZZI — Accessibility additions
+ * Appended to every app CSS (aero_comand / studio3D / vecter_omega3d) so the
+ * rules apply automatically wherever the parent CSS loads, without requiring
+ * HTML-side <link> edits.
+ * ========================================================================== */
+
+/* ── 1. Universal focus-visible — neon-cyan outline on keyboard nav only ──
+ * :focus-visible respects input modality (keyboard -> ring, mouse -> none)
+ * :focus:not(:focus-visible) clears styling for mouse clicks so outline
+ * doesn't blink on every click within the cyberpunk HUD. */
+:focus-visible {
+  outline: 2px solid #4a9eff;
+  outline-offset: 2px;
+  box-shadow: 0 0 0 1px rgba(0,0,0,.4), 0 0 8px rgba(74,158,255,.6);
+  border-radius: 2px;
+}
+
+:focus:not(:focus-visible) {
+  outline: none;
+  box-shadow: none;
+}
+
+/* ── 2. prefers-reduced-motion: kill all neon pulses / spinners ─────────
+ * Caps the global --motion-scale multiplier at 0 so any @keyframes
+ * `animation-duration: var(--motion-scale)` rule evaluates to 0ms when the
+ * user has requested reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-scale: 0;
+  }
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* ── 3. The single "no-neon-pulse mode" CSS variable ──────────────────────
+ * Default: 1 (full neon). When prefers-reduced-motion kicks in, the media
+ * query above sets it to 0 — anything that reads var(--motion-scale) inside
+ * a transition or animation simply freezes. Designers can extend this by
+ * redefining other motion tokens in the same media query. */
+:root {
+  --motion-scale: 1;
+}
+
+/* ── 4. Contrast tokens — bumped for HUD readability ──────────────────────
+ * Pulled from WCAG AA contrast spot-check (see ACCESSIBILITY.md):
+ *   --ink-strong : #f5f5f5  (~AA-Large 4.5:1 satisfied vs every dark bg)
+ *   --ink         : #cfcfcf  (~AA-body 7.0:1 vs #1a1a1a)
+ *   --ink-soft    : #a8aab0  (replaces #888 / #aaa / #999 commonly used)
+ *   --ink-special : #ff9c5b  (warm-accent, ~AA on #050505)
+ * Components that previously used #666 / #888 / #aaa muted greys should
+ * prefer var(--ink-soft) going forward. */
+:root {
+  --ink-strong: #f5f5f5;
+  --ink:        #cfcfcf;
+  --ink-soft:   #a8aab0;
+  --ink-special:#ff9c5b;
+}
+
+/* wcag-AA micro-fix for low-contrast utility classes that lots of HUD
+ * code reused under known names. */
+.muted-aa   { color: var(--ink-soft); }
+.dimmer-aa  { color: var(--ink); }
+.bright-aa  { color: var(--ink-strong); }
