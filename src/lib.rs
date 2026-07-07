@@ -17,6 +17,15 @@ struct ShipState {
     energy: f32,
     glitch_drive_ready: bool,
     thrust_level: f32,
+    // ── Custom-build stats (modulated by JS Star-Sparrow build-out) ──
+    /// Relative mass — heavier ships accelerate slower but hold momentum
+    mass: f32,
+    /// Multiplier on forward thrust force
+    thrust_mult: f32,
+    /// Per-tick velocity damping (0.99 = light, 0.95 = heavy bomber)
+    drag: f32,
+    /// Per-tick angular velocity damping (more = sluggish rotation)
+    angular_drag: f32,
 }
 
 impl ShipState {
@@ -31,12 +40,19 @@ impl ShipState {
             energy: 100.0,
             glitch_drive_ready: false,
             thrust_level: 0.0,
+            mass: 1.0,
+            thrust_mult: 1.0,
+            drag: 0.999,
+            angular_drag: 0.98,
         }
     }
 
     fn apply_thrust(&mut self, force: f32, dt: f32) {
         let forward = self.rotation * Vector3::new(0.0, 0.0, -1.0);
-        self.velocity += forward * force * dt;
+        // Heavy ships accelerate slower (a = F/m). Clamp mass to avoid
+        // divide-by-zero for malformed stats input.
+        let accel = self.thrust_mult / self.mass.max(0.1);
+        self.velocity += forward * force * accel * dt;
         self.thrust_level = force;
     }
 
@@ -68,9 +84,11 @@ impl ShipState {
             );
             self.rotation = rotation_matrix * self.rotation;
         }
-        // Damping
-        self.angular_velocity *= 0.98;
-        self.velocity *= 0.999;
+        // Damping — heavier ships damp more per tick (momentum feel).
+        // sqrt(mass) keeps the factor in a sane range: m=1 → 1.0, m=4 → 2.0.
+        let mass_factor = self.mass.sqrt().clamp(0.5, 2.0);
+        self.angular_velocity *= self.angular_drag.powf(mass_factor);
+        self.velocity *= self.drag.powf(mass_factor);
         // Energy regeneration
         self.energy = (self.energy + 2.0 * dt).min(100.0);
         if self.energy >= 100.0 {
@@ -518,5 +536,58 @@ impl GameEngine {
 
     pub fn get_version(&self) -> String {
         "VECTOR STRIKE: OMNI v0.1.0 — Rust Core (Rhai)".to_string()
+    }
+
+    /// Apply build-derived stats to a single ship. Driven from the JS
+    /// Star Sparrow build-out panel. All parameters are framed around
+    /// defaults: mass=1, thrust_mult=1, drag=0.999, angular_drag=0.98.
+    /// Out-of-range values are clamped to safe bounds.
+    pub fn set_ship_stats(
+        &mut self,
+        ship_id: &str,
+        mass: f32,
+        thrust_mult: f32,
+        drag: f32,
+        angular_drag: f32,
+    ) {
+        for ship in self.ships.iter_mut() {
+            if ship.id == ship_id {
+                ship.mass         = mass.max(0.1);
+                ship.thrust_mult  = thrust_mult.max(0.0);
+                ship.drag         = drag.clamp(0.5, 0.999);
+                ship.angular_drag = angular_drag.clamp(0.5, 0.99);
+                web_sys::console::log_1(
+                    &format!(
+                        "[BUILD] {} stats m={:.2} T={:.2} drag={:.4} ang={:.4}",
+                        ship_id,
+                        ship.mass,
+                        ship.thrust_mult,
+                        ship.drag,
+                        ship.angular_drag,
+                    )
+                    .into(),
+                );
+                return;
+            }
+        }
+    }
+
+    /// Returns the current build stats of the named ship as a JSON string
+    /// so the JS UI can round-trip and verify the active build was applied.
+    /// Returns "{}" if the ship doesn't exist.
+    pub fn get_ship_stats_json(&self, ship_id: &str) -> String {
+        for ship in self.ships.iter() {
+            if ship.id == ship_id {
+                return serde_json::json!({
+                    "id":           ship.id,
+                    "mass":         ship.mass,
+                    "thrust_mult":  ship.thrust_mult,
+                    "drag":         ship.drag,
+                    "angular_drag": ship.angular_drag,
+                })
+                .to_string();
+            }
+        }
+        "{}".to_string()
     }
 }

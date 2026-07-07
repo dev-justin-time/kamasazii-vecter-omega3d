@@ -9,6 +9,8 @@
     <script src="https://js.puter.com/v2/"></script>
 
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="./star_sparrow_builder.css">
+    <script src="./star_sparrow_builder.js" defer></script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='28' font-size='28'%3E⚡%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -840,8 +842,13 @@ function installRhaiConsoleInterceptor() {
                             const color = SHIPS.colors[ship.id] || [0.5, 0.5, 0.5];
 
                             if (model) {
-                                // Render the loaded 3D ship model
-                                renderShipModel(model, [ship.x, ship.y, ship.z], color, proj, view);
+                                // Modular ships (Star Sparrow custom build) route through
+                                // the builder module's per-part renderer when available.
+                                if (model.modular && typeof window.__SS_renderModular === 'function') {
+                                    window.__SS_renderModular(model, [ship.x, ship.y, ship.z], color, proj, view);
+                                } else {
+                                    renderShipModel(model, [ship.x, ship.y, ship.z], color, proj, view);
+                                }
                             } else {
                                 // Fallback: colored triangle marker
                                 const s = 3;
@@ -2095,12 +2102,18 @@ function installRhaiConsoleInterceptor() {
             if (wantsFire) {
                 const def = WEAPON_DEFS[state.weapon];
                 const cd = state.weaponCooldowns[state.weapon] || 0;
-                if (def && cd <= 0 && state.energy >= def.energy_cost && state.heat + def.heat_generation < 100) {
-                    state.energy -= def.energy_cost;
-                    state.heat = Math.min(100, state.heat + def.heat_generation);
-                    state.weaponCooldowns[state.weapon] = def.cooldown;
+                // Star Sparrow build-out modifies per-shot resources (energy /
+                // heat / cooldown). Falls back to 1.0× for non-modular loadouts.
+                const _WM = window.__SS_weaponMults || { energyMult: 1, heatMult: 1, cooldownMult: 1 };
+                const _energyNow = def.energy_cost     * (_WM.energyMult  || 1);
+                const _heatNow   = def.heat_generation * (_WM.heatMult    || 1);
+                const _cdNow     = def.cooldown        * (_WM.cooldownMult|| 1);
+                if (def && cd <= 0 && state.energy >= _energyNow && state.heat + _heatNow < 100) {
+                    state.energy -= _energyNow;
+                    state.heat = Math.min(100, state.heat + _heatNow);
+                    state.weaponCooldowns[state.weapon] = _cdNow;
                     if (state.engine && typeof state.engine.spend_energy === 'function') {
-                        state.engine.spend_energy(def.energy_cost);
+                        state.engine.spend_energy(_energyNow);
                     }
                     sendFire(state.weapon);
                     if (def.homing) console.log('[WEAPON] Fired heatseeker (homing)');
@@ -2236,14 +2249,23 @@ function installRhaiConsoleInterceptor() {
             // 1. Initialize WebGL
             const webglOk = initWebGL();
             console.log('[INIT] WebGL2:', webglOk ? 'OK' : 'FALLBACK');
+            // Expose module-scoped WebGL + scene state on window for the
+            // classic-script Star Sparrow builder module (cannot import).
+            window.__SS_gl = gl;
+            window.__SS_ARENA = ARENA;
 
             // 2. Load the vaporwave arena + ship models (fire-and-forget)
             if (webglOk) {
                 loadArena().catch(e => console.warn('[ARENA] Load error:', e));
-                // Load ship models in parallel
+                // Load ship models in parallel (skip modular ships — builder handles those)
                 for (const [name, path] of Object.entries(SHIPS.paths)) {
+                    if (name === 'star_sparrow_modular') continue; // loaded by star_sparrow_builder.js
                     loadShipGLB(name, path).catch(e => console.warn('[SHIP] Load error:', e));
                 }
+                // Expose SHIPS/state on window so the classic-script Star
+                // Sparrow builder module can register its modular loader.
+                window.__SS_SHIPS = SHIPS;
+                window.__SS_state = state;
             }
 
             // 3. Initialize Puter.js
