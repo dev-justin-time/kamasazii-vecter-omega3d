@@ -234,18 +234,31 @@ export function initWebGL() {
                             _renderShipModel(model, [ship.x, ship.y, ship.z], color, proj, view);
                         }
                     } else {
-                        // Fallback: colored triangle marker
+                        // Fallback: wireframe ship silhouette (arrow/wedge shape)
                         const s = 3;
+                        const x = ship.x, y = ship.y, z = ship.z;
+                        // Wireframe ship: fuselage + wings + tail as line segments
                         const mp = new Float32Array([
-                            ship.x, ship.y+s, ship.z,
-                            ship.x-s, ship.y-s, ship.z,
-                            ship.x+s, ship.y-s, ship.z,
+                            // Fuselage (diamond)
+                            x, y, z+s*1.5,   x+s*0.4, y, z-0.5,
+                            x, y, z+s*1.5,   x-s*0.4, y, z-0.5,
+                            x+s*0.4, y, z-0.5,  x, y, z-s*1.0,
+                            x-s*0.4, y, z-0.5,  x, y, z-s*1.0,
+                            // Wings
+                            x+s*0.4, y, z-0.5,  x+s*1.5, y, z-s*0.8,
+                            x-s*0.4, y, z-0.5,  x-s*1.5, y, z-s*0.8,
+                            x+s*1.5, y, z-s*0.8,  x+s*0.4, y, z-s*0.3,
+                            x-s*1.5, y, z-s*0.8,  x-s*0.4, y, z-s*0.3,
+                            // Tail
+                            x, y, z-s*1.0,   x, y+s*0.6, z-s*1.3,
+                            x, y+s*0.6, z-s*1.3,  x+s*0.3, y, z-s*0.7,
+                            x, y+s*0.6, z-s*1.3,  x-s*0.3, y, z-s*0.7,
                         ]);
-                        const mc = new Float32Array([
-                            color[0],color[1],color[2],
-                            color[0],color[1],color[2],
-                            color[0],color[1],color[2],
-                        ]);
+                        const c = color;
+                        const mc = new Float32Array(mp.length);
+                        for (let ci = 0; ci < mc.length; ci += 3) {
+                            mc[ci] = c[0]; mc[ci+1] = c[1]; mc[ci+2] = c[2];
+                        }
                         const pb = gl.createBuffer(), cb = gl.createBuffer();
                         gl.bindBuffer(gl.ARRAY_BUFFER, pb);
                         gl.bufferData(gl.ARRAY_BUFFER, mp, gl.DYNAMIC_DRAW);
@@ -260,7 +273,7 @@ export function initWebGL() {
                         gl.bindBuffer(gl.ARRAY_BUFFER, cb);
                         gl.enableVertexAttribArray(_aCol);
                         gl.vertexAttribPointer(_aCol, 3, gl.FLOAT, false, 0, 0);
-                        gl.drawArrays(gl.TRIANGLES, 0, 3);
+                        gl.drawArrays(gl.LINES, 0, mp.length / 3);
                         gl.deleteBuffer(pb);
                         gl.deleteBuffer(cb);
                     }
