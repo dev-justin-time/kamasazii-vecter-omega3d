@@ -1,8 +1,24 @@
 use js_sys::Math;
 use nalgebra::{Matrix3, Point3, Vector3};
 use rhai::Engine;
+use std::cell::RefCell;
+use std::rc::Rc;
 use wasm_bindgen::prelude::*;
 use web_sys::{WebGl2RenderingContext, WebGlProgram, WebGlShader};
+
+// ─── Command Buffer ───────────────────────────────────────────────────────────
+// Rhai closures registered via `register_fn` must be `Fn` (not `FnMut`), so they
+// cannot borrow `GameEngine.ships` mutably.  Instead, AI scripts push commands
+// into a shared `Rc<RefCell<Vec<ShipCommand>>>` that the tick loop drains.
+
+#[derive(Clone, Debug)]
+enum ShipCommand {
+    ApplyThrust(String, f32),
+    ApplyTorque(String, f32, f32, f32),
+    FireWeapon(String, String),
+    TriggerGlitchDrive(String),
+    AlignHeading(String, [f32; 3]),
+}
 
 // ─── Ship State ───────────────────────────────────────────────────────────────
 
@@ -109,6 +125,9 @@ pub struct GameEngine {
     // WebGL state (held opaque to JS)
     gl: Option<WebGl2RenderingContext>,
     wireframe_program: Option<WebGlProgram>,
+    /// Command buffer shared with Rhai closures — AI scripts push commands
+    /// here, and `process_commands()` drains them after each script run.
+    commands: Rc<RefCell<Vec<ShipCommand>>>,
 }
 
 #[wasm_bindgen]
@@ -116,9 +135,10 @@ impl GameEngine {
     #[wasm_bindgen(constructor)]
     pub fn new() -> GameEngine {
         let mut engine = Engine::new();
+        let commands: Rc<RefCell<Vec<ShipCommand>>> = Rc::new(RefCell::new(Vec::new()));
 
         // Register Rust functions exposed to Rhai scripts
-        GameEngine::register_rhai_functions(&mut engine);
+        GameEngine::register_rhai_functions(&mut engine, &commands);
 
         // Preload core Rhai gameplay scripts — defines vector_distance, normalize,
         // and evaluate_combat_state for use by ai_apex.rhai and the inline tick AI.
@@ -160,51 +180,49 @@ impl GameEngine {
             time_accumulator: 0.0,
             gl: None,
             wireframe_program: None,
+            commands,
         }
     }
 
-    fn register_rhai_functions(engine: &mut Engine) {
-        engine.register_fn("apply_thrust", |ship_id: String, force: f64| {
-            web_sys::console::log_1(
-                &format!("[RHAI] {} thrust {:.1}", ship_id, force).into(),
-            );
+    fn register_rhai_functions(engine: &mut Engine, commands: &Rc<RefCell<Vec<ShipCommand>>>) {
+        // Clone the Rc for each closure so they all share the same command buffer.
+        let cmd = commands.clone();
+        engine.register_fn("apply_thrust", move |ship_id: String, force: f64| {
+            cmd.borrow_mut().push(ShipCommand::ApplyThrust(ship_id, force as f32));
         });
 
+        let cmd = commands.clone();
         engine.register_fn(
             "fire_vector_cannon",
-            |ship_id: String, weapon_type: String| {
-                web_sys::console::log_1(
-                    &format!("[WEAPON] {} fired {}", ship_id, weapon_type).into(),
-                );
+            move |ship_id: String, weapon_type: String| {
+                cmd.borrow_mut().push(ShipCommand::FireWeapon(ship_id, weapon_type));
                 true
             },
         );
 
         engine.register_fn("get_distance_to_target", || -> f64 { 600.0 });
 
-        engine.register_fn("trigger_glitch_drive", |ship_id: String| {
-            web_sys::console::log_1(
-                &format!("[GLITCH] {} initiated quantum drive!", ship_id).into(),
-            );
+        let cmd = commands.clone();
+        engine.register_fn("trigger_glitch_drive", move |ship_id: String| {
+            cmd.borrow_mut().push(ShipCommand::TriggerGlitchDrive(ship_id));
         });
 
+        let cmd = commands.clone();
         engine.register_fn(
             "align_heading",
-            |ship_id: String, target: Vec<f64>| {
+            move |ship_id: String, target: Vec<f64>| {
                 if target.len() >= 3 {
-                    web_sys::console::log_1(
-                        &format!(
-                            "[AI] {} aligning to ({:.1}, {:.1}, {:.1})",
-                            ship_id, target[0], target[1], target[2]
-                        )
-                        .into(),
-                    );
+                    let pos = [target[0] as f32, target[1] as f32, target[2] as f32];
+                    cmd.borrow_mut().push(ShipCommand::AlignHeading(ship_id, pos));
                 }
             },
         );
 
-        engine.register_fn("apply_torque", |_ship_id: String, _roll: f64, _pitch: f64, _yaw: f64| {
-            // Placeholder — physics torque integration called from JS side.
+        let cmd = commands.clone();
+        engine.register_fn("apply_torque", move |ship_id: String, roll: f64, pitch: f64, yaw: f64| {
+            cmd.borrow_mut().push(ShipCommand::ApplyTorque(
+                ship_id, roll as f32, pitch as f32, yaw as f32,
+            ));
         });
 
         engine.register_fn("random", || -> f64 { Math::random() });
@@ -212,6 +230,75 @@ impl GameEngine {
         engine.register_fn("log_info", |msg: String| {
             web_sys::console::log_1(&msg.into());
         });
+    }
+
+    /// Drain the command buffer and apply each command to the matching ship.
+    /// Called once per tick, after all Rhai scripts have executed.
+    fn process_commands(&mut self, dt: f32) {
+        let cmds: Vec<ShipCommand> = self.commands.borrow_mut().drain(..).collect();
+        for cmd in cmds {
+            match cmd {
+                ShipCommand::ApplyThrust(id, force) => {
+                    if let Some(ship) = self.ships.iter_mut().find(|s| s.id == id) {
+                        ship.apply_thrust(force, dt);
+                    }
+                }
+                ShipCommand::ApplyTorque(id, roll, pitch, yaw) => {
+                    if let Some(ship) = self.ships.iter_mut().find(|s| s.id == id) {
+                        let torque = Vector3::new(pitch * 5.0, yaw * 5.0, roll * 3.0);
+                        ship.apply_torque(torque, dt);
+                    }
+                }
+                ShipCommand::FireWeapon(id, weapon) => {
+                    web_sys::console::log_1(
+                        &format!("[WEAPON] {} fired {}", id, weapon).into(),
+                    );
+                }
+                ShipCommand::TriggerGlitchDrive(id) => {
+                    if let Some(ship) = self.ships.iter_mut().find(|s| s.id == id) {
+                        if ship.glitch_drive_ready {
+                            // Teleport forward by 500 units
+                            let forward = ship.rotation * Vector3::new(0.0, 0.0, -1.0);
+                            ship.position += forward * 500.0;
+                            ship.energy = 0.0;
+                            ship.glitch_drive_ready = false;
+                            web_sys::console::log_1(
+                                &format!("[GLITCH] {} quantum jump!", id).into(),
+                            );
+                        }
+                    }
+                }
+                ShipCommand::AlignHeading(id, target) => {
+                    if let Some(ship) = self.ships.iter_mut().find(|s| s.id == id) {
+                        let to_target = Vector3::new(
+                            target[0] - ship.position.x,
+                            target[1] - ship.position.y,
+                            target[2] - ship.position.z,
+                        );
+                        let dist = to_target.magnitude();
+                        if dist > 0.01 {
+                            // Compute steering torque to align forward vector toward target.
+                            // Forward is -Z in ship-local space.
+                            let forward = ship.rotation * Vector3::new(0.0, 0.0, -1.0);
+                            let desired = to_target.normalize();
+                            let cross = forward.cross(&desired);
+                            let dot = forward.dot(&desired).clamp(-1.0, 1.0);
+                            // Proportional steering: stronger correction for larger misalignment.
+                            let gain = 4.0;
+                            let torque = Vector3::new(
+                                cross.x * gain,
+                                cross.y * gain,
+                                cross.z * gain * 0.5, // less yaw authority
+                            );
+                            ship.apply_torque(torque, dt);
+                            // Also apply thrust toward target
+                            let thrust = if dot > 0.3 { 20.0 } else { 8.0 };
+                            ship.apply_thrust(thrust, dt);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// Initialize WebGL2 context and compile wireframe shaders
@@ -318,6 +405,8 @@ impl GameEngine {
 
         // --- Rhai AI Script Execution (only when ai_active is true — disabled in PvP) ---
         if self.ai_active {
+        // Clear any leftover commands from previous frame
+        self.commands.borrow_mut().clear();
         if let Some(enemy) = self.ships.get(1) {
             if let Some(player) = self.ships.get(0) {
                 let glitch_ready = if enemy.glitch_drive_ready { "true" } else { "false" };
@@ -364,6 +453,9 @@ impl GameEngine {
                         );
                     }
                 }
+
+                // Drain command buffer — apply AI decisions to actual ship state
+                self.process_commands(dt);
             }
         }
         }

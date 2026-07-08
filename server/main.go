@@ -1,11 +1,16 @@
 package main
 
 import (
+	"crypto/rand"
+	"encoding/binary"
 	"encoding/json"
 	"fmt"
 	"log"
 	"math"
+	rand_math "math/rand"
+	"net"
 	"net/http"
+	"regexp"
 	"sync"
 	"time"
 
@@ -24,6 +29,13 @@ const (
 	COLLISION_DIST    = 5.0
 	RESPAWN_DELAY     = 3  // seconds
 	GLITCH_COOLDOWN   = 8  // seconds
+
+	// Security
+	MAX_CONNS_PER_IP  = 5       // max simultaneous WebSocket connections per IP
+	MAX_MESSAGE_SIZE  = 4096    // 4 KB read limit per WebSocket message
+	MSG_RATE_LIMIT    = 20.0    // messages per second per connection
+	MSG_BURST         = 30.0    // token bucket capacity
+	ROTATION_SPEED    = 3.0     // radians/sec max angular velocity
 )
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -93,6 +105,57 @@ var upgrader = websocket.Upgrader{
 var rooms = make(map[string]*Room)
 var roomsMu sync.Mutex
 
+// ─── Security: IP connection limiter ─────────────────────────────────────────
+
+var (
+	ipConns   = make(map[string]int)
+	ipConnsMu sync.Mutex
+)
+
+// ─── Security: Player ID validation ─────────────────────────────────────────
+
+var validPlayerID = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,24}$`)
+
+// ─── Security: Cryptographically seeded RNG ─────────────────────────────────
+
+var rng *rand_math.Rand
+
+func init() {
+	var seed int64
+	if err := binary.Read(rand.Reader, binary.BigEndian, &seed); err != nil {
+		seed = time.Now().UnixNano()
+	}
+	rng = rand_math.New(rand_math.NewSource(seed))
+}
+
+// ─── Security: Token-bucket rate limiter ─────────────────────────────────────
+
+type RateLimiter struct {
+	tokens float64
+	last   time.Time
+	rate   float64
+	max    float64
+	mu     sync.Mutex
+}
+
+// Allow returns true if a message is permitted under the rate limit.
+// Disconnected clients whose limiter drifts above max are clamped.
+func (rl *RateLimiter) Allow() bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+	now := time.Now()
+	rl.tokens += now.Sub(rl.last).Seconds() * rl.rate
+	if rl.tokens > rl.max {
+		rl.tokens = rl.max
+	}
+	rl.last = now
+	if rl.tokens >= 1.0 {
+		rl.tokens--
+		return true
+	}
+	return false
+}
+
 // ─── Room Management ──────────────────────────────────────────────────────────
 
 func getOrCreateRoom(roomID string) *Room {
@@ -137,7 +200,7 @@ func (r *Room) gameLoop() {
 		}
 
 		// Authoritative physics tick for all players
-		for conn, state := range r.Players {
+		for _, state := range r.Players {
 			r.integratePlayer(state, 1.0/float64(TICK_RATE))
 		}
 
@@ -202,7 +265,7 @@ func (r *Room) updateProjectiles() {
 		p.Position.Z += p.Velocity.Z / float64(TICK_RATE)
 
 		// Check collisions with players
-		for conn, state := range r.Players {
+		for _, state := range r.Players {
 			if state.ID == p.OwnerID {
 				continue // No self-damage
 			}
@@ -260,12 +323,44 @@ func (r *Room) broadcastState() {
 // ─── WebSocket Handler ────────────────────────────────────────────────────────
 
 func handleWS(w http.ResponseWriter, r *http.Request) {
+	// ── 1. IP connection limit ──────────────────────────────────────────────
+	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+	ipConnsMu.Lock()
+	if ipConns[ip] >= MAX_CONNS_PER_IP {
+		ipConnsMu.Unlock()
+		log.Printf("[AUTH] Rejected connection from %s — max %d connections per IP", ip, MAX_CONNS_PER_IP)
+		http.Error(w, "Too many connections", http.StatusTooManyRequests)
+		return
+	}
+	ipConns[ip]++
+	ipConnsMu.Unlock()
+	defer func() {
+		ipConnsMu.Lock()
+		ipConns[ip]--
+		if ipConns[ip] <= 0 {
+			delete(ipConns, ip)
+		}
+		ipConnsMu.Unlock()
+	}()
+
+	// ── 2. Player ID validation (lightweight auth) ─────────────────────────
+	playerID := r.URL.Query().Get("player_id")
+	if !validPlayerID.MatchString(playerID) {
+		log.Printf("[AUTH] Rejected invalid player_id from %s: %q", ip, playerID)
+		http.Error(w, "Invalid player_id: must be 3-24 alphanumeric, dash, or underscore characters", http.StatusBadRequest)
+		return
+	}
+
+	// ── 3. WebSocket upgrade ───────────────────────────────────────────────
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("[WS] Upgrade error: %v", err)
 		return
 	}
 	defer conn.Close()
+
+	// ── 4. Read limit (prevent oversized message DoS) ──────────────────────
+	conn.SetReadLimit(MAX_MESSAGE_SIZE)
 
 	// Join or create a room (default: "omega_arena")
 	roomID := r.URL.Query().Get("room")
@@ -275,15 +370,10 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 
 	room := getOrCreateRoom(roomID)
 
-	// Create player state
-	playerID := r.URL.Query().Get("player_id")
-	if playerID == "" {
-		playerID = fmt.Sprintf("pilot_%d", time.Now().UnixNano()%100000)
-	}
-
 	playerState := &PlayerState{
 		ID:       playerID,
 		Position: Vector3{X: 0, Y: 50, Z: 0},
+		Rotation: [3][3]float64{{1, 0, 0}, {0, 1, 0}, {0, 0, 1}}, // identity
 		Health:   100.0,
 		Energy:   100.0,
 	}
@@ -302,6 +392,9 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("[CONNECT] %s joined room %s (%d players)", playerID, roomID, len(room.Players))
 
+	// ── 5. Per-connection rate limiter ─────────────────────────────────────
+	limiter := &RateLimiter{tokens: MSG_BURST, last: time.Now(), rate: MSG_RATE_LIMIT, max: MSG_BURST}
+
 	// ─── Client Input Loop ────────────────────────────────────────────────
 	for {
 		_, msg, err := conn.ReadMessage()
@@ -310,6 +403,12 @@ func handleWS(w http.ResponseWriter, r *http.Request) {
 			room.mu.Lock()
 			delete(room.Players, conn)
 			room.mu.Unlock()
+			break
+		}
+
+		// ── 6. Rate limit check ───────────────────────────────────────────
+		if !limiter.Allow() {
+			log.Printf("[RATE LIMIT] Disconnecting %s — exceeded %d msg/s", playerID, int(MSG_RATE_LIMIT))
 			break
 		}
 
@@ -408,7 +507,7 @@ func clamp(val, min, max float64) float64 {
 }
 
 func mathRand() float64 {
-	return float64(time.Now().UnixNano()%100000) / 100000.0
+	return rng.Float64()
 }
 
 func applyRotationToVector(rot [3][3]float64, v Vector3) Vector3 {
@@ -419,14 +518,31 @@ func applyRotationToVector(rot [3][3]float64, v Vector3) Vector3 {
 	}
 }
 
-func applyTorque(rot *[3][3]float64, pitch, yaw, roll, dt float64) {
-	// Simple Euler angle integration (sufficient for authoritative validation)
-	// Full quaternion integration would go here for production
-	_ = pitch
-	_ = yaw
-	_ = roll
-	_ = dt
-	// In production we'd apply rotation matrix updates here
+func applyTorque(rot *[3][3]float64, pitch, yaw, roll, tickRate float64) {
+	dt := 1.0 / tickRate
+	p := pitch * ROTATION_SPEED * dt // pitch rotation around local X axis
+	y := yaw * ROTATION_SPEED * dt   // yaw rotation around local Y axis
+	r := roll * ROTATION_SPEED * dt  // roll rotation around local Z axis
+
+	cx, sx := math.Cos(p), math.Sin(p)
+	cy, sy := math.Cos(y), math.Sin(y)
+	cz, sz := math.Cos(r), math.Sin(r)
+
+	// Combined local-space Euler rotation matrix (ZYX convention)
+	upd := [3][3]float64{
+		{cy * cz, -cy * sz, sy},
+		{cx*sz + sx*sy*cz, cx*cz - sx*sy*sz, -sx * cy},
+		{sx*sz - cx*sy*cz, sx*cz + cx*sy*sz, cx * cy},
+	}
+
+	// Multiply: next = rot * upd
+	var next [3][3]float64
+	for i := 0; i < 3; i++ {
+		for j := 0; j < 3; j++ {
+			next[i][j] = rot[i][0]*upd[0][j] + rot[i][1]*upd[1][j] + rot[i][2]*upd[2][j]
+		}
+	}
+	*rot = next
 }
 
 // ─── HTTP & Static File Serving ───────────────────────────────────────────────

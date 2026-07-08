@@ -1,7 +1,7 @@
 # VECTOR STRIKE: OMNI
 
 > **Air-to-air combat gaming in the Kamikazzi universe.**  
-> *Rust + Lua + Go + Puter.js — a multi-language cyberpunk dogfighter.*
+> *Rust + Rhai + Go + Puter.js — a multi-language cyberpunk dogfighter.*
 
 ---
 
@@ -10,7 +10,7 @@
 | Layer | Technology | Role |
 |-------|-----------|------|
 | **Core Engine** | Rust → WebAssembly | 6DOF physics, ECS, WebGL2 wireframe rendering at 60+ FPS |
-| **Brain** | Lua (embedded in Rust) | Gameplay logic, AI behavior trees, weapon scripting — hot-reloadable |
+| **Brain** | Rhai (embedded in Rust) | Gameplay logic, AI behavior trees, weapon scripting — hot-reloadable |
 | **Authority** | Go (WebSocket server) | Authoritative multiplayer state, hit-registration, matchmaking, anti-cheat |
 | **Cloud & AI** | Puter.js (browser SDK) | Cloud saves (replays), persistent player loadouts (KV store), AI-generated mission briefings |
 
@@ -38,12 +38,12 @@ wasm-pack build --target web --out-dir pkg --release
 
 ```
 kamasazii_vecter_omega3d/
-├── Cargo.toml                     # Rust crate config (wasm-bindgen, web-sys, mlua, nalgebra)
+├── Cargo.toml                     # Rust crate config (wasm-bindgen, web-sys, rhai, nalgebra)
 ├── src/
-│   └── lib.rs                     # Rust engine: Wasm bindings, Lua VM, 6DOF physics, WebGL2
+│   └── lib.rs                     # Rust engine: Wasm bindings, Rhai VM, 6DOF physics, WebGL2
 ├── scripts/
-│   ├── ai_apex.lua                # Neural AI behavior tree (predictive targeting, glitch drive)
-│   └── weapons.lua                # Weapon definitions (plasma, ion, rail, missile, point defense)
+│   ├── ai_apex.rhai               # Neural AI behavior tree (predictive targeting, glitch drive)
+│   └── weapons.rhai               # Weapon definitions (plasma, ion, rail, missile, point defense)
 ├── server/
 │   ├── main.go                    # Go authoritative server: WebSockets, rooms, anti-cheat
 │   └── go.mod                     # Go module (gorilla/websocket)
@@ -61,7 +61,7 @@ kamasazii_vecter_omega3d/
 The engine compiles to **WebAssembly** via `wasm-bindgen` and exposes:
 
 - **`GameEngine`** — Main Wasm export with constructor, tick(), init_gl(), set_player_input()
-- **Lua scripting bridge** — `mlua` 0.9 with Lua 5.4, registers Rust functions (apply_thrust, fire_vector_cannon, trigger_glitch_drive) into the Lua VM
+- **Rhai scripting bridge** — `rhai` 1.19, registers Rust functions (apply_thrust, fire_vector_cannon, trigger_glitch_drive) into the Rhai engine
 - **6DOF physics** — `nalgebra` Vector3/Matrix3 for position, velocity, rotation, angular velocity, integration with damping
 - **WebGL2 wireframe renderer** — Perspective projection, lookAt camera, neon shaders
 
@@ -76,11 +76,11 @@ let positions = engine.get_ship_positions(); // JSON
 
 ---
 
-## 🧩 Lua Scripting (`scripts/`)
+## 🧩 Rhai Scripting (`scripts/`)
 
-Scripts are **loaded dynamically** into the Rust Wasm Lua VM — edit without recompiling.
+Scripts are **loaded dynamically** into the Rust Wasm Rhai engine — edit without recompiling.
 
-### `ai_apex.lua`
+### `ai_apex.rhai`
 - **Tier 3 Neural AI** — Behavioral state machine with 5 states:
   1. **Glitch Drive** — Emergency quantum displacement at close range
   2. **Evasive Retreat** — Low-health disengagement
@@ -90,22 +90,22 @@ Scripts are **loaded dynamically** into the Rust Wasm Lua VM — edit without re
 - Formation flying support for squadrons
 - Barrel roll evasion at knife-fight range
 
-### `weapons.lua`
+### `weapons.rhai`
 - 5 weapon types with unique stats (damage, speed, cooldown, energy cost, range, color)
 - Overheat system with penalty/shutdown thresholds
 - Dynamic weapon selection based on distance and energy
 
-```lua
--- Example AI behavior
-function update_ai(enemy_ship, player_ship, game_time)
-    local dist = vector_distance(enemy_ship.pos, player_ship.pos)
-    if dist < 200.0 and enemy_ship.glitch_drive_ready then
-        trigger_glitch_drive(enemy_ship.id)
-    else
-        align_heading(enemy_ship.id, predicted_pos)
-        apply_thrust(enemy_ship.id, 15.0)
-    end
-end
+```rhai
+// Example AI behavior
+fn update_ai(enemy_ship, player_ship, game_time) {
+    let dist = vector_distance(enemy_ship.pos, player_ship.pos);
+    if dist < 200.0 && enemy_ship.glitch_drive_ready {
+        trigger_glitch_drive(enemy_ship.id);
+    } else {
+        align_heading(enemy_ship.id, predicted_pos);
+        apply_thrust(enemy_ship.id, 15.0);
+    }
+}
 ```
 
 ---
@@ -187,7 +187,7 @@ cd server && go build -o ../vector_server .
 ## 🧪 Stack Benefits
 
 1. **Zero-latency rendering** — Rust → Wasm runs at near-native speeds
-2. **Modular gameplay** — Lua scripts tweak AI/weapons without recompiling
+2. **Modular gameplay** — Rhai scripts tweak AI/weapons without recompiling
 3. **Trustless cloud** — Puter.js gives players cloud saves for free
 4. **Server authority** — Go validates inputs, prevents client cheating
 5. **Dynamic content** — Puter AI generates unique briefings every session
@@ -195,4 +195,4 @@ cd server && go build -o ../vector_server .
 ---
 
 *Part of the [Kamikazzi Branded Game Suite](https://github.com/dev-justin-time/kamikazzi).*  
-*Built with Rust, Lua, Go, and Puter.js.*
+*Built with Rust, Rhai, Go, and Puter.js.*

@@ -1,0 +1,55 @@
+// ─── DOM References ──────────────────────────────────────────────
+// Cached once at module load for zero-cost lookups in hot paths.
+
+const $ = (id) => document.getElementById(id);
+
+export const canvas = $('gameCanvas');
+export const gl = canvas.getContext('webgl2', { alpha: false });
+
+export const elements = Object.freeze({
+    loading:            $('loading-screen'),
+    briefing:           $('briefing-overlay'),
+    briefingText:       $('briefing-text'),
+    enterBtn:           $('enter-btn'),
+    fps:                $('fps-display'),
+    healthVal:          $('health-value'),
+    healthBar:          $('health-bar'),
+    energyVal:          $('energy-value'),
+    energyBar:          $('energy-bar'),
+    heatVal:            $('heat-value'),
+    heatBar:            $('heat-bar'),
+    glitchStatus:       $('glitch-status'),
+    posDisplay:         $('pos-display'),
+    missionText:        $('mission-text'),
+    scoreVal:           $('score-value'),
+    weaponName:         $('weapon-name'),
+    weaponStatus:       $('weapon-status'),
+    wsDot:              $('ws-dot'),
+    wsStatus:           $('ws-status'),
+    puterDot:           $('puter-dot'),
+    puterStatus:        $('puter-status'),
+    engineVer:          $('engine-version'),
+    hotReload:          $('hot-reload-indicator'),
+    rhaiErrorBadge:     $('rhai-error-badge'),
+    rhaiErrorPanel:     $('rhai-error-panel'),
+    rhaiErrorHeaderCount: $('rhai-error-header-count'),
+    rhaiErrorList:      $('rhai-error-list'),
+    rhaiErrorClear:     $('rhai-error-clear-btn'),
+    fireBtn:            $('fire-btn'),
+    modeIndicator:      $('mode-indicator'),
+    modePvai:           $('mode-pvai'),
+    modePvp:            $('mode-pvp'),
+    pvpStatus:          $('pvp-status'),
+    p2HealthVal:        $('p2-health-value'),
+    p2HealthBar:        $('p2-health-bar'),
+    p2EnergyVal:        $('p2-energy-value'),
+    p2EnergyBar:        $('p2-energy-bar'),
+    p2GlitchStatus:     $('p2-glitch-status'),
+    loadoutNameP1:      $('loadout-name-player_1'),
+    loadoutNameP2:      $('loadout-name-player_2'),
+    loadoutDescP1:      $('loadout-desc-player_1'),
+    loadoutDescP2:      $('loadout-desc-player_2'),
+    loadoutSlot2Label:  $('loadout-slot2-label'),
+    syncIcon:           $('sync-icon'),
+    syncText:           $('sync-text'),
+});
