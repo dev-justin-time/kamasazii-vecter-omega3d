@@ -138,9 +138,26 @@ export async function generateMissionBriefing() {
     }
 }
 
-// ─── Puter KV: Save/Load Loadout ─────────────────────────────
+// ─── LocalStorage helper (offline fallback for Puter KV) ────
+const KV_FALLBACK_KEY = 'omni_loadout_v1';
+
+function loadoutFromLocal() {
+    try {
+        const raw = localStorage.getItem(KV_FALLBACK_KEY);
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+}
+
+function loadoutToLocal(loadout) {
+    try { localStorage.setItem(KV_FALLBACK_KEY, JSON.stringify(loadout)); } catch (_) {}
+}
+
+// ─── Puter KV: Save/Load Loadout (with localStorage fallback) ─
 
 export async function saveLoadout(loadout) {
+    // Always persist locally first (offline-first)
+    loadoutToLocal(loadout);
+
     const si = document.getElementById("sync-icon");
     const st = document.getElementById("sync-text");
     if (window.__syncErrorTimer) clearTimeout(window.__syncErrorTimer);
@@ -150,7 +167,7 @@ export async function saveLoadout(loadout) {
     }
     try {
         if (!state.puterReady || typeof puter === "undefined") {
-            setSync("\u26e4", "Offline");
+            setSync("\u26e4", "Local");
             return;
         }
         setSync("\u23f3", "Saving...");
@@ -158,23 +175,33 @@ export async function saveLoadout(loadout) {
         setSync("\u2601\ufe0f", "Saved");
         console.log("[PUTER KV] Loadout saved");
     } catch (e) {
-        setSync("\u26a0\ufe0f", "Error");
-        console.warn("[PUTER KV] Save error:", e);
+        setSync("\u26a0\ufe0f", "Local");
+        console.warn("[PUTER KV] Save error (local fallback active):", e);
         setTimeout(function() {
-            if (st && st.textContent === "Error") setSync("\u2601\ufe0f", "Ready");
+            if (st && (st.textContent === "Local" || st.textContent === "Error")) setSync("\u2601\ufe0f", "Ready");
         }, 3000);
     }
 }
 
 export async function loadLoadout() {
+    // Try Puter first
     try {
-        if (!state.puterReady || typeof puter === 'undefined') return null;
-        const data = await puter.kv.get('omni_loadout_v1');
-        return data ? JSON.parse(data) : null;
+        if (state.puterReady && typeof puter !== 'undefined') {
+            const data = await puter.kv.get('omni_loadout_v1');
+            if (data) {
+                const parsed = JSON.parse(data);
+                // Sync to localStorage for offline availability
+                loadoutToLocal(parsed);
+                return parsed;
+            }
+        }
     } catch (e) {
-        console.warn('[PUTER KV] Load error:', e);
-        return null;
+        console.warn('[PUTER KV] Load error, falling back to local:', e);
     }
+    // Fallback to localStorage
+    const local = loadoutFromLocal();
+    if (local) console.log('[LOADOUT] Restored from localStorage (offline fallback)');
+    return local;
 }
 
 // ─── Puter FS: Save Replay ───────────────────────────────────
