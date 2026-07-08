@@ -19,6 +19,7 @@ import { connectWebSocket, initPuter, generateMissionBriefing, saveLoadout, load
 import { syncWeaponsFromEngine } from './weapon-select.js';
 // cycleWeapon + selectWeaponByIndex are consumed by input.js, not main.js
 import { startRhaiHotReload } from './hot-reload.js';
+import { analytics, EventType } from './analytics.js';
 
 // ─── Boot ─────────────────────────────────────────────────────
 
@@ -47,6 +48,9 @@ async function init() {
         loadArena(),
         ...Object.entries(SHIPS.paths).map(([name, url]) => loadShipGLB(name, url)),
     ]);
+
+    // Register analytics hooks before engine is ready
+    _registerAnalyticsHooks();
 
     // Cloud services (non-blocking)
     initPuter();
@@ -154,6 +158,12 @@ function fixedUpdate(dt) {
 
         state.engine.tick(dt);
 
+        // Analytics monitor — detect health changes + score changes each tick
+        try {
+            const shipData = JSON.parse(state.engine.get_ship_positions());
+            analytics.monitor(shipData);
+        } catch (_) {}
+
         // Sync HUD from engine
         try {
             const shipData = JSON.parse(state.engine.get_ship_positions());
@@ -196,6 +206,8 @@ function fixedUpdate(dt) {
             if (state.engine) {
                 try { state.engine.fire_weapon(state.weapon); } catch (_) {}
             }
+            // Analytics: track weapon fire (projectile created)
+            analytics.trackWeaponFire(state.weapon, 'player_1');
             sendFire(state.weapon);
         }
     }
@@ -240,7 +252,16 @@ elements.enterBtn.addEventListener('click', () => {
     state.running = true;
     elements.briefing.style.display = 'none';
     if (state.engine) {
-        state.engine.reset_ships(state.gameMode === 'pvp' ? 'pvp' : 'pvai');
+        const mode = state.gameMode === 'pvp' ? 'pvp' : 'pvai';
+        state.engine.reset_ships(mode);
+        // Analytics: track ship spawns (WASM reset_ships is synchronous)
+        try {
+            const ships = JSON.parse(state.engine.get_ship_positions());
+            for (const s of ships) {
+                analytics.trackShipSpawn(s.id, SHIPS.assignments[s.id]);
+            }
+            analytics.trackMissionStart(mode);
+        } catch (_) {}
     }
     connectWebSocket();
 });
@@ -271,6 +292,21 @@ setTimeout(() => {
     window.__SS_SHIPS = SHIPS;
     window.__SS_state = state;
 }, 0);
+
+// ─── Analytics: Register onObjectAdded hook listeners ────────
+
+function _registerAnalyticsHooks() {
+    // Example: log all ship spawn events to console during development
+    analytics.on(EventType.SHIP_SPAWN, (event) => {
+        console.log('[ANALYTICS] Ship spawned:', event.shipId, event.shipModel);
+    });
+
+    analytics.on(EventType.WEAPON_FIRE, (event) => {
+        console.log('[ANALYTICS] Weapon fired:', event.weapon, 'by', event.shipId);
+    });
+
+    // Future: add AI-chat summarization hook, Puter KV flush trigger, etc.
+}
 
 // ─── Start ────────────────────────────────────────────────────
 init();

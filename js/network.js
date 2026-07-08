@@ -86,30 +86,47 @@ export function sendGlitch() {
     }
 }
 
+// ═══ Cloud status indicator helper ───────────────────────────
+
+/** Update the cloud connection status pill in the network status panel. */
+function _setCloudStatus(state, label) {
+    const el = document.getElementById('cloud-status-indicator');
+    if (!el) return;
+    el.className = 'cloud-status-pill cloud-' + state;
+    el.title = label || state.charAt(0).toUpperCase() + state.slice(1);
+}
+
+/** Wire click-to-recheck on the cloud status pill. */
+(function _wireCloudRecheck() {
+    const el = document.getElementById('cloud-status-indicator');
+    if (!el) return;
+    el.addEventListener('click', () => {
+        _setCloudStatus('checking', 'Rechecking Puter connection...');
+        initPuter();
+    });
+})();
+
 // ═══ Puter.js Integration ══════════════════════════════════════
 
 export async function initPuter() {
     try {
         if (typeof puter === 'undefined') {
-            elements.puterStatus.textContent = 'PUTER: SDK MISSING';
+            _setCloudStatus('disconnected', 'Puter SDK not loaded — cloud features unavailable');
             return;
         }
-        elements.puterDot.className = 'status-dot connecting';
-        elements.puterStatus.textContent = 'PUTER: CONNECTING...';
+        _setCloudStatus('checking', 'Connecting to Puter...');
 
         if (puter.auth && puter.auth.isSignedIn && !puter.auth.isSignedIn()) {
-            elements.puterStatus.textContent = 'PUTER: SIGN IN REQUIRED';
+            _setCloudStatus('disconnected', 'Sign in to Puter for cloud sync');
             return;
         }
 
         state.puterReady = true;
-        elements.puterDot.className = 'status-dot connected';
-        elements.puterStatus.textContent = 'PUTER: ONLINE';
+        _setCloudStatus('connected', 'Puter connected — cloud sync active');
         console.log('[PUTER] SDK initialized successfully');
     } catch (e) {
         console.warn('[PUTER] Init error:', e);
-        elements.puterDot.className = 'status-dot disconnected';
-        elements.puterStatus.textContent = 'PUTER: OFFLINE';
+        _setCloudStatus('disconnected', 'Puter unavailable — using local storage');
     }
 }
 

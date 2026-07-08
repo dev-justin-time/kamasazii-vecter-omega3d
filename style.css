@@ -223,6 +223,59 @@ html, body {
 .status-dot.disconnected { background: var(--danger); }
 .status-dot.connecting { background: var(--warning); }
 
+/* ── Cloud connection status pill ── */
+.cloud-status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 9px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.3s;
+    letter-spacing: 0.4px;
+}
+.cloud-status-pill:hover {
+    filter: brightness(1.3);
+}
+.cloud-status-pill::before {
+    content: '';
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    flex-shrink: 0;
+    transition: background 0.3s, box-shadow 0.3s;
+}
+.cloud-status-pill.cloud-connected {
+    background: rgba(0, 255, 102, 0.1);
+    color: var(--neon-green);
+}
+.cloud-status-pill.cloud-connected::before {
+    background: var(--neon-green);
+    box-shadow: 0 0 6px rgba(0, 255, 102, 0.5);
+}
+.cloud-status-pill.cloud-disconnected {
+    background: rgba(96, 112, 128, 0.1);
+    color: var(--text-dim);
+}
+.cloud-status-pill.cloud-disconnected::before {
+    background: var(--text-dim);
+}
+.cloud-status-pill.cloud-checking {
+    background: rgba(0, 240, 255, 0.08);
+    color: var(--neon-cyan);
+}
+.cloud-status-pill.cloud-checking::before {
+    background: var(--neon-cyan);
+    animation: cloudPulse 0.8s ease-in-out infinite alternate;
+}
+@keyframes cloudPulse {
+    from { opacity: 0.4; transform: scale(0.8); }
+    to   { opacity: 1;   transform: scale(1.1); }
+}
+
 /* ─── Briefing Overlay (pre-game) ────────────────────────────────────────── */
 
 #briefing-overlay {
