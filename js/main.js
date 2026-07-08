@@ -60,6 +60,12 @@ async function init() {
     const engine = await loadWasmEngine();
     if (engine) {
         state.engine = engine;
+        // Initialize WebGL inside the WASM engine (shader compilation, uniform setup)
+        try {
+            engine.init_gl('gameCanvas');
+        } catch (e) {
+            console.warn('[WASM] init_gl failed (renderer will use JS fallback):', e);
+        }
         syncWeaponsFromEngine(engine);
         startRhaiHotReload(engine);
     }

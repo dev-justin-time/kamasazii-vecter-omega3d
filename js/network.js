@@ -5,6 +5,7 @@ import { CONFIG } from './config.js';
 import { elements } from './dom.js';
 import { state } from './state.js';
 import { updateHUD } from './hud.js';
+import { setCloudStatus, initCloudRecheck, CloudState } from '../../shared/cloud-status.js';
 
 // ═══ WebSocket Multiplayer Client ══════════════════════════════
 
@@ -86,47 +87,34 @@ export function sendGlitch() {
     }
 }
 
-// ═══ Cloud status indicator helper ───────────────────────────
-
-/** Update the cloud connection status pill in the network status panel. */
-function _setCloudStatus(state, label) {
-    const el = document.getElementById('cloud-status-indicator');
-    if (!el) return;
-    el.className = 'cloud-status-pill cloud-' + state;
-    el.title = label || state.charAt(0).toUpperCase() + state.slice(1);
-}
+// ═══ Cloud status indicator helper (uses shared/cloud-status.js) ─
 
 /** Wire click-to-recheck on the cloud status pill. */
-(function _wireCloudRecheck() {
-    const el = document.getElementById('cloud-status-indicator');
-    if (!el) return;
-    el.addEventListener('click', () => {
-        _setCloudStatus('checking', 'Rechecking Puter connection...');
-        initPuter();
-    });
-})();
+initCloudRecheck('cloud-status-indicator', async () => {
+    await initPuter();
+});
 
 // ═══ Puter.js Integration ══════════════════════════════════════
 
 export async function initPuter() {
     try {
         if (typeof puter === 'undefined') {
-            _setCloudStatus('disconnected', 'Puter SDK not loaded — cloud features unavailable');
+            setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Puter SDK not loaded — cloud features unavailable');
             return;
         }
-        _setCloudStatus('checking', 'Connecting to Puter...');
+        setCloudStatus('cloud-status-indicator', CloudState.CHECKING, 'Connecting to Puter...');
 
         if (puter.auth && puter.auth.isSignedIn && !puter.auth.isSignedIn()) {
-            _setCloudStatus('disconnected', 'Sign in to Puter for cloud sync');
+            setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Sign in to Puter for cloud sync');
             return;
         }
 
         state.puterReady = true;
-        _setCloudStatus('connected', 'Puter connected — cloud sync active');
+        setCloudStatus('cloud-status-indicator', CloudState.CONNECTED, 'Puter connected — cloud sync active');
         console.log('[PUTER] SDK initialized successfully');
     } catch (e) {
         console.warn('[PUTER] Init error:', e);
-        _setCloudStatus('disconnected', 'Puter unavailable — using local storage');
+        setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Puter unavailable — using local storage');
     }
 }
 

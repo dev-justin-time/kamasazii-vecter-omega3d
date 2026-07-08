@@ -4,7 +4,7 @@ use rhai::Engine;
 use std::cell::RefCell;
 use std::rc::Rc;
 use wasm_bindgen::prelude::*;
-use web_sys::{WebGl2RenderingContext, WebGlProgram, WebGlShader};
+use web_sys::{WebGl2RenderingContext, WebGlProgram, WebGlShader, WebGlUniformLocation};
 
 // ─── Command Buffer ───────────────────────────────────────────────────────────
 // Rhai closures registered via `register_fn` must be `Fn` (not `FnMut`), so they
@@ -125,6 +125,9 @@ pub struct GameEngine {
     // WebGL state (held opaque to JS)
     gl: Option<WebGl2RenderingContext>,
     wireframe_program: Option<WebGlProgram>,
+    wireframe_u_mvp: Option<WebGlUniformLocation>,
+    canvas_width: f32,
+    canvas_height: f32,
     /// Command buffer shared with Rhai closures — AI scripts push commands
     /// here, and `process_commands()` drains them after each script run.
     commands: Rc<RefCell<Vec<ShipCommand>>>,
@@ -180,6 +183,9 @@ impl GameEngine {
             time_accumulator: 0.0,
             gl: None,
             wireframe_program: None,
+            wireframe_u_mvp: None,
+            canvas_width: 800.0,
+            canvas_height: 600.0,
             commands,
         }
     }
@@ -347,8 +353,16 @@ impl GameEngine {
         gl.clear_color(0.0, 0.0, 0.05, 1.0);
         gl.enable(WebGl2RenderingContext::DEPTH_TEST);
 
+        // Cache the MVP uniform location once (avoid per-frame lookup)
+        let u_mvp = gl.get_uniform_location(&program, "uModelViewProjection");
+
+        // Store canvas dimensions so render_wireframe doesn't need to query the DOM
+        self.canvas_width = canvas.width() as f32;
+        self.canvas_height = canvas.height() as f32;
+
         self.gl = Some(gl);
         self.wireframe_program = Some(program);
+        self.wireframe_u_mvp = u_mvp;
 
         Ok(())
     }
@@ -474,9 +488,9 @@ impl GameEngine {
             None => return,
         };
 
-        let width: f32 = 800.0;
-        let height: f32 = 600.0;
-        let aspect = width / height;
+        // Use canvas dimensions (stored from init_gl, or fallback defaults)
+        let (width, height) = (self.canvas_width, self.canvas_height);
+        let aspect = if height > 0.0 { width / height } else { 1.0 };
 
         gl.viewport(0, 0, width as i32, height as i32);
         gl.clear(
@@ -493,22 +507,46 @@ impl GameEngine {
         let p22 = -(z_far + z_near) / (z_far - z_near);
         let p23 = -2.0 * z_far * z_near / (z_far - z_near);
 
+        // Standard OpenGL perspective projection (row-major in nalgebra::new):
+        //   [ p00,   0,    0,     0  ]
+        //   [  0,   p11,   0,     0  ]
+        //   [  0,    0,   p22,   -1  ]
+        //   [  0,    0,   p23,    0  ]
         let projection = nalgebra::Matrix4::new(
-            p00, 0.0, 0.0, 0.0, 0.0, p11, 0.0, 0.0, 0.0, 0.0, p22, p23, 0.0, 0.0, -1.0, 0.0,
+            p00, 0.0, 0.0, 0.0, 0.0, p11, 0.0, 0.0, 0.0, 0.0, p22, -1.0, 0.0, 0.0, p23, 0.0,
         );
 
-        // Camera looking at origin from behind player
-        let camera_pos = Point3::new(0.0, 5.0, 20.0);
-        let target = Point3::new(0.0, 0.0, 0.0);
+        // Camera follows player_1 (falls back to origin if not found)
+        let (target_pos, cam_offset) = if let Some(player) = self.ships.first() {
+            // Use player position as look-at target
+            let t = Point3::new(player.position.x, player.position.y, player.position.z);
+            // Camera hovers behind-and-above relative to ship orientation
+            let forward = player.rotation * Vector3::new(0.0, 0.0, -1.0);
+            let eye_offset = Vector3::new(
+                -forward.x * 20.0,
+                8.0,
+                -forward.z * 20.0,
+            );
+            (t, eye_offset)
+        } else {
+            (Point3::new(0.0, 0.0, 0.0), Vector3::new(0.0, 5.0, 20.0))
+        };
+
+        let camera_pos = Point3::new(
+            target_pos.x + cam_offset.x,
+            target_pos.y + cam_offset.y,
+            target_pos.z + cam_offset.z,
+        );
         let up = Vector3::new(0.0, 1.0, 0.0);
 
-        let view = nalgebra::Matrix4::look_at_rh(&camera_pos, &target, &up);
+        let view = nalgebra::Matrix4::look_at_rh(&camera_pos, &target_pos, &up);
         let mvp = projection * view;
 
-        // Upload MVP uniform (placeholder)
-        let u_mvp = gl.get_uniform_location(program, "uModelViewProjection");
+        // Upload MVP uniform to the wireframe shader (location cached in init_gl)
         gl.use_program(Some(program));
-        // Vertex data is provided by JS-side wireframe mesh generator
+        if let Some(ref u_mvp) = self.wireframe_u_mvp {
+            gl.uniform_matrix4fv_with_f32_array(Some(u_mvp), false, mvp.as_slice());
+        }
     }
 
     /// Get ship position as JSON (for JS-side rendering / Puter sync)

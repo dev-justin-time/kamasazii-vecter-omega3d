@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 description = "VECTOR STRIKE: OMNI — Rust core engine compiled to WebAssembly for air-to-air combat"
 
+[package.metadata.wasm-pack.profile.release]
+wasm-opt = false
+
 [lib]
 crate-type = ["cdylib"]
 
