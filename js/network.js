@@ -227,3 +227,213 @@ export async function saveReplay(replayData) {
 
 // Expose saveReplay globally (used by star_sparrow_builder.js)
 window.saveReplay = saveReplay;
+
+// ═══ Puter Auth (sign in/out) ══════════════════════════════════
+
+const AUTH_KEYS = {
+    local: 'omni_auth_user',
+    cloud: 'omni_auth_user',
+};
+
+/**
+ * Sign in to Puter. Triggers the OAuth popup flow.
+ * On success, caches the user and updates cloud status.
+ * @returns {Promise<object|null>} The signed-in user, or null on failure.
+ */
+export async function signIn() {
+    try {
+        if (typeof puter === 'undefined' || !puter.auth || typeof puter.auth.signIn !== 'function') {
+            console.warn('[PUTER] Auth unavailable');
+            return null;
+        }
+        setCloudStatus('cloud-status-indicator', CloudState.CHECKING, 'Signing in to Puter...');
+        await puter.auth.signIn();
+        const user = await puter.auth.getUser();
+        if (user) {
+            state.puterReady = true;
+            try { localStorage.setItem(AUTH_KEYS.local, JSON.stringify(user)); } catch (_) {}
+            setCloudStatus('cloud-status-indicator', CloudState.CONNECTED, 'Signed in as ' + (user.username || user.name));
+            console.log('[PUTER] Signed in as', user.username || user.name);
+            // Refresh briefing now that AI is available
+            generateMissionBriefing();
+        }
+        return user || null;
+    } catch (e) {
+        console.warn('[PUTER] Sign in failed:', e);
+        setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Sign in failed');
+        return null;
+    }
+}
+
+/**
+ * Sign out of Puter. Clears cached user and updates cloud status.
+ * @returns {Promise<boolean>}
+ */
+export async function signOut() {
+    try {
+        if (typeof puter === 'undefined' || !puter.auth || typeof puter.auth.signOut !== 'function') {
+            return false;
+        }
+        await puter.auth.signOut();
+        state.puterReady = false;
+        try { localStorage.removeItem(AUTH_KEYS.local); } catch (_) {}
+        setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Signed out');
+        console.log('[PUTER] Signed out');
+        return true;
+    } catch (e) {
+        console.warn('[PUTER] Sign out failed:', e);
+        return false;
+    }
+}
+
+/**
+ * Get the cached Puter user (from memory or localStorage fallback).
+ * @returns {Promise<object|null>}
+ */
+export async function getUser() {
+    if (state.puterReady && typeof puter !== 'undefined' && puter.auth) {
+        try {
+            const user = await puter.auth.getUser();
+            if (user) return user;
+        } catch (_) {}
+    }
+    // localStorage fallback
+    try {
+        const raw = localStorage.getItem(AUTH_KEYS.local);
+        return raw ? JSON.parse(raw) : null;
+    } catch (_) { return null; }
+}
+
+/**
+ * Get the display-friendly username.
+ * @returns {Promise<string|null>}
+ */
+export async function getUsername() {
+    const user = await getUser();
+    return user ? (user.username || user.name || null) : null;
+}
+
+// ═══ Leaderboard Score Sync ════════════════════════════════════
+
+const SCORE_KEYS = {
+    local: 'omni_leaderboard_v1',
+    cloud: 'omni_leaderboard_v1',
+};
+
+/**
+ * Submit a score to the Puter KV leaderboard.
+ * Writes to localStorage immediately (offline-first), then syncs to
+ * Puter KV asynchronously. Scores are stored as an array of entries
+ * sorted descending by score, capped at 50.
+ *
+ * @param {number} score - The score to submit.
+ * @param {object} [meta] - Optional: { mode, ship, kills, timestamp }.
+ * @returns {Promise<boolean>}
+ */
+export async function submitScore(score, meta = {}) {
+    const entry = {
+        score: Math.floor(score),
+        username: await getUsername() || 'Pilot',
+        mode: meta.mode || state.gameMode || 'pvai',
+        ship: meta.ship || 'star_sparrow',
+        kills: meta.kills || 0,
+        timestamp: Date.now(),
+    };
+
+    // Read current leaderboard
+    let board = [];
+    try {
+        const raw = localStorage.getItem(SCORE_KEYS.local);
+        if (raw) board = JSON.parse(raw);
+    } catch (_) {}
+
+    // Insert and sort descending
+    board.push(entry);
+    board.sort((a, b) => b.score - a.score);
+    board = board.slice(0, 50); // cap at 50 entries
+
+    // Persist locally
+    try { localStorage.setItem(SCORE_KEYS.local, JSON.stringify(board)); } catch (_) {}
+
+    // Async sync to Puter KV (fire-and-forget)
+    try {
+        if (state.puterReady && typeof puter !== 'undefined' && puter.kv) {
+            const remoteRaw = await puter.kv.get(SCORE_KEYS.cloud);
+            let remoteBoard = [];
+            if (remoteRaw) {
+                const parsed = typeof remoteRaw === 'string' ? JSON.parse(remoteRaw) : remoteRaw;
+                if (Array.isArray(parsed)) remoteBoard = parsed;
+            }
+            // Merge local + remote, deduplicate by timestamp
+            const merged = [...board];
+            for (const r of remoteBoard) {
+                if (!merged.some(e => e.timestamp === r.timestamp)) {
+                    merged.push(r);
+                }
+            }
+            merged.sort((a, b) => b.score - a.score);
+            await puter.kv.set(SCORE_KEYS.cloud, JSON.stringify(merged.slice(0, 50)));
+            console.log('[PUTER] Score synced to cloud:', entry.score);
+        }
+    } catch (e) {
+        console.warn('[PUTER] Score cloud sync failed (local saved):', e);
+    }
+
+    return true;
+}
+
+/**
+ * Get the leaderboard. Merges local + Puter KV, returns sorted array.
+ * @returns {Promise<Array<{score, username, mode, kills, timestamp}>>}
+ */
+export async function getLeaderboard() {
+    // Start with local data
+    let board = [];
+    try {
+        const raw = localStorage.getItem(SCORE_KEYS.local);
+        if (raw) board = JSON.parse(raw);
+    } catch (_) {}
+
+    // Try to merge from cloud
+    try {
+        if (state.puterReady && typeof puter !== 'undefined' && puter.kv) {
+            const remoteRaw = await puter.kv.get(SCORE_KEYS.cloud);
+            if (remoteRaw) {
+                const parsed = typeof remoteRaw === 'string' ? JSON.parse(remoteRaw) : remoteRaw;
+                if (Array.isArray(parsed)) {
+                    const seen = new Set(board.map(e => e.timestamp));
+                    for (const r of parsed) {
+                        if (!seen.has(r.timestamp)) {
+                            board.push(r);
+                            seen.add(r.timestamp);
+                        }
+                    }
+                    board.sort((a, b) => b.score - a.score);
+                    board = board.slice(0, 50);
+                    // Sync the merged result back to local
+                    try { localStorage.setItem(SCORE_KEYS.local, JSON.stringify(board)); } catch (_) {}
+                }
+            }
+        }
+    } catch (e) {
+        console.warn('[PUTER] Leaderboard cloud read failed (local only):', e);
+    }
+
+    return board;
+}
+
+/**
+ * Get the player's best score from the leaderboard.
+ * @returns {Promise<number>}
+ */
+export async function getBestScore() {
+    const board = await getLeaderboard();
+    const username = await getUsername();
+    const userEntries = board.filter(e => e.username === (username || 'Pilot'));
+    return userEntries.length > 0 ? Math.max(...userEntries.map(e => e.score)) : 0;
+}
+
+// Expose globally for other scripts (e.g. star_sparrow_builder DOM buttons)
+window.puterSignIn = signIn;
+window.puterSignOut = signOut;
+window.submitScore = submitScore;

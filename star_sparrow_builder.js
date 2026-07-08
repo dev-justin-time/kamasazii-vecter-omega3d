@@ -832,7 +832,7 @@ function buildPayload() {
 function persistBuilds() {
     try {
         const json = JSON.stringify(buildPayload());
-        localStorage.setItem('omni_buildout', json);
+        localStorage.setItem('omni_buildout_v1', json);
         if (typeof puter !== 'undefined' && puter && puter.kv) {
             puter.kv.set('omni_buildout_v1', json).catch(function (e) {
                 console.warn('[SS] Puter KV save error:', e);
@@ -849,6 +849,8 @@ async function hydrateBuilds() {
         if (typeof puter !== 'undefined' && puter && puter.kv && puter.auth && puter.auth.isSignedIn && puter.auth.isSignedIn()) {
             const remote = await puter.kv.get('omni_buildout_v1');
             if (remote) {
+                // Sync cloud value to localStorage so offline boot is consistent
+                try { localStorage.setItem('omni_buildout_v1', typeof remote === 'string' ? remote : JSON.stringify(remote)); } catch (_) {}
                 applyPayload(JSON.parse(remote));
                 console.log('[SS] Hydrated from Puter KV');
                 return;
@@ -859,7 +861,7 @@ async function hydrateBuilds() {
     }
     // 2) Fall back to localStorage
     try {
-        const raw = localStorage.getItem('omni_buildout');
+        const raw = localStorage.getItem('omni_buildout_v1');
         if (raw) {
             applyPayload(JSON.parse(raw));
             console.log('[SS] Hydrated from localStorage');
