@@ -551,7 +551,7 @@ func main() {
 	http.HandleFunc("/ws", handleWS)
 
 	// Serve the frontend
-	fs := http.FileServer(http.Dir("./public"))
+	fs := http.FileServer(http.Dir("."))
 	http.Handle("/", fs)
 
 	log.Println("═══════════════════════════════════════════")
