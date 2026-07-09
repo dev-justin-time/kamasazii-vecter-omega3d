@@ -7,12 +7,12 @@
     <title>VECTOR STRIKE: OMNI</title>
 
     <!-- Puter.js SDK (Cloud, AI, Storage, Auth) -->
-    <script src="https://js.puter.com/v2/"></script>
+    <script src="https://js.puter.com/v2/?v=2026-07-09"></script>
 
-    <link rel="stylesheet" href="./fonts/fonts.css">
-    <link rel="stylesheet" href="style.css">
-    <link rel="stylesheet" href="./star_sparrow_builder.css">
-    <script src="./star_sparrow_builder.js" defer></script>
+    <link rel="stylesheet" href="./fonts/fonts.css?v=2026-07-09">
+    <link rel="stylesheet" href="style.css?v=2026-07-09">
+    <link rel="stylesheet" href="./star_sparrow_builder.css?v=2026-07-09">
+    <script src="./star_sparrow_builder.js?v=2026-07-09" defer></script>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='28' font-size='28'%3E⚡%3C/text%3E%3C/svg%3E">
 </head>
 <body>
@@ -101,29 +101,29 @@
                 <span class="stat-value" id="health-value">100</span>
             </div>
             <div class="stat-bar">
-                <div class="stat-bar-fill health" id="health-bar" style="width: 100%"></div>
+                <div class="stat-bar-fill health bar-fill--max" id="health-bar"></div>
             </div>
             <div class="stat-row">
                 <span class="stat-label">ENERGY</span>
                 <span class="stat-value" id="energy-value">100</span>
             </div>
             <div class="stat-bar">
-                <div class="stat-bar-fill energy" id="energy-bar" style="width: 100%"></div>
+                <div class="stat-bar-fill energy bar-fill--max" id="energy-bar"></div>
             </div>
             <div class="stat-row">
                 <span class="stat-label">HEAT</span>
                 <span class="stat-value" id="heat-value">0</span>
             </div>
             <div class="stat-bar">
-                <div class="stat-bar-fill heat" id="heat-bar" style="width: 0%"></div>
+                <div class="stat-bar-fill heat bar-fill--none" id="heat-bar"></div>
             </div>
-            <div class="stat-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(0,240,255,0.1);">
+            <div class="stat-row divider-row">
                 <span class="stat-label">GLITCH DRIVE</span>
-                <span class="stat-value" id="glitch-status" style="color: var(--text-dim)">STANDBY</span>
+                <span class="stat-value text-dim" id="glitch-status">STANDBY</span>
             </div>
-            <div class="stat-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(0,240,255,0.1); font-size: 10px;">
+            <div class="stat-row divider-row divider-row--compact">
                 <span class="stat-label">POSITION</span>
-                <span class="stat-value" id="pos-display" style="font-size: 10px; letter-spacing: 0.5px;">--, --, --</span>
+                <span class="stat-value text-pos" id="pos-display">--, --, --</span>
             </div>
         </div>
 
@@ -155,18 +155,18 @@
                 <span class="stat-value" id="p2-health-value">100</span>
             </div>
             <div class="stat-bar">
-                <div class="stat-bar-fill pvp-health" id="p2-health-bar" style="width:100%"></div>
+                <div class="stat-bar-fill pvp-health bar-fill--max" id="p2-health-bar"></div>
             </div>
             <div class="stat-row">
                 <span class="stat-label">ENERGY</span>
                 <span class="stat-value" id="p2-energy-value">100</span>
             </div>
             <div class="stat-bar">
-                <div class="stat-bar-fill pvp-energy" id="p2-energy-bar" style="width:100%"></div>
+                <div class="stat-bar-fill pvp-energy bar-fill--max" id="p2-energy-bar"></div>
             </div>
-            <div class="stat-row" style="margin-top: 4px; padding-top: 4px; border-top: 1px solid rgba(255,0,230,0.15);">
-                <span class="stat-label" style="font-size:9px;">GLITCH</span>
-                <span class="stat-value" id="p2-glitch-status" style="font-size:10px;color:var(--text-dim)">STANDBY</span>
+            <div class="stat-row divider-row divider-row--pvp">
+                <span class="stat-label text-tiny">GLITCH</span>
+                <span class="stat-value text-tiny-dim" id="p2-glitch-status">STANDBY</span>
             </div>
             <div class="pvp-controls-hint">↑↓←→ Enter</div>
         </div>
@@ -177,21 +177,21 @@
         <!-- CC-BY-4.0 Credit: 90s Vaporwave Neon Grid by Diego T. Yamaguchi -->
         <div id="arena-credit" title="Arena model by Diego T. Yamaguchi (CC-BY-4.0)">
             <span>Neon Grid Arena © Diego T. Yamaguchi</span>
-            <span style="font-size:8px;opacity:0.5;"> CC-BY-4.0</span>
+            <span class="text-mute"> CC-BY-4.0</span>
         </div>
 
         <!-- Network Status (Bottom-Right) -->
         <div id="network-status">
             <div><span class="status-dot disconnected" id="ws-dot"></span><span id="ws-status">DISCONNECTED</span></div>
-            <div style="margin-top: 4px;">
+            <div class="net-row">
                 <span class="cloud-status-pill cloud-disconnected" id="cloud-status-indicator">☁️ Cloud</span>
             </div>
-            <div style="margin-top: 4px; color: var(--neon-cyan); font-size: 9px;">
+            <div class="net-row net-row--cyan">
                 <span id="engine-version">v0.1.0</span>
             </div>
-            <div style="margin-top: 4px; font-size: 8px;">
+            <div class="net-row net-row--small">
                 <span id="hot-reload-indicator" class="hr-idle">RHAI: STATIC</span>
-                <span id="rhai-error-badge" class="rhai-error-none" style="display:none;"></span>
+                <span id="rhai-error-badge" class="rhai-error-none"></span>
             </div>
             <!-- Rhai Error Log (expandable) -->
             <div id="rhai-error-panel" class="hidden">
@@ -216,6 +216,6 @@
         </div>
     </div>
 
-<script type="module" src="./js/main.js"></script>
+<script type="module" src="./js/main.js?v=2026-07-09"></script>
 </body>
 </html>

@@ -1184,3 +1184,46 @@ html, body {
 .muted-aa   { color: var(--ink-soft); }
 .dimmer-aa  { color: var(--ink); }
 .bright-aa  { color: var(--ink-strong); }
+
+/* ============================================================================
+ * HUD utility classes
+ * ----------------------------------------------------------------------------
+ * Extracted from inline style="" attributes in kamasazii_vecter_omega3d/index.html
+ * so the strict style-src 'self' CSP no longer depends on implicit
+ * inline-attribute allowances.  All classes are safe under runtime mutation:
+ *   - JS uses .style.width on the bar fills, which beats the class rule.
+ *   - JS uses .style.display on the rhai badge, which beats the class rule.
+ *   - JS uses .style.color / classList on glitch-status / warhawkins, which beat
+ *     any selector listed below.
+ * ============================================================================ */
+
+/* Stat-bar fill initial widths (overridden by JS to track live resources) */
+.bar-fill--max  { width: 100%; }
+.bar-fill--none { width: 0%; }
+
+/* Stat-row section dividers (margin + padding + HUD-coloured separator) */
+.divider-row {
+    margin-top: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(0, 240, 255, 0.1);
+}
+.divider-row--compact { font-size: 10px; }
+.divider-row--pvp     { border-top-color: rgba(255, 0, 230, 0.15); }
+
+/* HUD text variants (declared as classes so the markup stays declarative) */
+.text-dim        { color: var(--text-dim); }
+.text-pos        { font-size: 10px; letter-spacing: 0.5px; }
+.text-tiny       { font-size: 9px; }
+.text-tiny-dim   { font-size: 10px; color: var(--text-dim); }
+.text-mute       { font-size: 8px; opacity: 0.5; }
+
+/* Network-status compact rows (bottom-right HUD) */
+.net-row         { margin-top: 4px; }
+.net-row--cyan   { color: var(--neon-cyan); font-size: 9px; }
+.net-row--small  { font-size: 8px; }
+
+/* Hidden-by-default RHAI error badge.
+ * Combined ID+class selector (specificity 110) overrides the bare ID rule
+ * (specificity 100) so the badge starts hidden.  JS flips .style.display
+ * at runtime to override when errors appear. */
+#rhai-error-badge.rhai-error-none { display: none; }
