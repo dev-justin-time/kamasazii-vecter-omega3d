@@ -113,6 +113,82 @@ impl ShipState {
     }
 }
 
+// ─── Weapon Specs (mirrors scripts/weapons.rhai) ───────────────────────────────
+// Per-weapon projectile behavior. Mirrored in JS (weapons.js) for the renderer.
+// `speed`     — world units per second along firing ship's forward axis.
+// `ttl`       — projectile lifetime before auto-despawn (seconds).
+// `homing`    — only `missile` updates its velocity toward the nearest enemy.
+// `damage`    — applied on hit (1.0 = 1 HP reduction).
+// `hit_radius`— sphere radius for ship/projectile collision test.
+struct WeaponSpec {
+    speed: f32,
+    ttl: f32,
+    damage: f32,
+    color: [f32; 3],
+    homing: bool,
+    turn_rate: f32,
+    hit_radius: f32,
+}
+
+fn weapon_spec(name: &str) -> Option<WeaponSpec> {
+    match name {
+        "plasma_bolt" => Some(WeaponSpec {
+            speed: 120.0, ttl: 1.8, damage: 12.0,
+            color: [0.2, 0.8, 1.0],     // cyan
+            homing: false, turn_rate: 0.0,
+            hit_radius: 2.0,
+        }),
+        "ion_cannon" => Some(WeaponSpec {
+            speed: 90.0, ttl: 2.4, damage: 8.0,
+            color: [0.6, 0.2, 1.0],     // violet
+            homing: false, turn_rate: 0.0,
+            hit_radius: 2.5,
+        }),
+        "rail_sniper" => Some(WeaponSpec {
+            speed: 220.0, ttl: 2.0, damage: 35.0,
+            color: [1.0, 0.4, 0.0],     // orange
+            homing: false, turn_rate: 0.0,
+            hit_radius: 1.5,
+        }),
+        "point_defense" => Some(WeaponSpec {
+            speed: 60.0, ttl: 1.5, damage: 4.0,
+            color: [0.0, 1.0, 0.4],     // green
+            homing: false, turn_rate: 0.0,
+            hit_radius: 1.5,
+        }),
+        "missile" => Some(WeaponSpec {
+            speed: 80.0, ttl: 4.0, damage: 50.0,
+            color: [1.0, 0.1, 0.1],     // red
+            homing: true, turn_rate: 2.5,
+            hit_radius: 3.0,
+        }),
+        _ => None,
+    }
+}
+
+// ─── Projectile State ──────────────────────────────────────────────────────────
+#[derive(Clone, Debug)]
+struct ProjectileState {
+    id: u32,
+    owner_id: String,
+    /// Frame on which this projectile was spawned — renderer uses it for
+    /// a brief muzzle-flash effect at the spawn point.
+    spawn_frame: u32,
+    position: Vector3<f32>,
+    /// Previous-frame position — drives the wireframe streak rendered in JS.
+    prev_position: Vector3<f32>,
+    velocity: Vector3<f32>,
+    weapon: String,
+    color: [f32; 3],
+    damage: f32,
+    hit_radius: f32,
+    homing: bool,
+    turn_rate: f32,
+    /// Per-weapon time-to-live (seconds) — auto-despawns after this.
+    ttl: f32,
+    age: f32,
+}
+
 // ─── Engine ───────────────────────────────────────────────────────────────────
 
 #[wasm_bindgen]
@@ -131,6 +207,12 @@ pub struct GameEngine {
     /// Command buffer shared with Rhai closures — AI scripts push commands
     /// here, and `process_commands()` drains them after each script run.
     commands: Rc<RefCell<Vec<ShipCommand>>>,
+    /// Active projectiles (bullets, plasma, rails, missiles). Owned by the
+    /// engine so the renderer can pull a snapshot via `get_projectiles()`.
+    projectiles: Vec<ProjectileState>,
+    /// Monotonic counter for projectile IDs (also used to recently-fired
+    /// shots for muzzle-flash detection in the renderer).
+    next_projectile_id: u32,
 }
 
 #[wasm_bindgen]
@@ -187,6 +269,8 @@ impl GameEngine {
             canvas_width: 800.0,
             canvas_height: 600.0,
             commands,
+            projectiles: Vec::new(),
+            next_projectile_id: 0,
         }
     }
 
@@ -256,9 +340,9 @@ impl GameEngine {
                     }
                 }
                 ShipCommand::FireWeapon(id, weapon) => {
-                    web_sys::console::log_1(
-                        &format!("[WEAPON] {} fired {}", id, weapon).into(),
-                    );
+                    // Spawn a projectile from this ship's muzzle so the
+                    // renderer can show a visible bullet/plasma/rail/missile.
+                    self.spawn_projectile(&id, &weapon);
                 }
                 ShipCommand::TriggerGlitchDrive(id) => {
                     if let Some(ship) = self.ships.iter_mut().find(|s| s.id == id) {
@@ -474,6 +558,9 @@ impl GameEngine {
         }
         }
 
+        // --- Projectile Integration ---
+        self.update_projectiles(dt);
+
         // --- Render Wireframe ---
         self.render_wireframe();
     }
@@ -549,12 +636,18 @@ impl GameEngine {
         }
     }
 
-    /// Get ship position as JSON (for JS-side rendering / Puter sync)
+    /// Get ship state as JSON (for JS-side rendering / Puter sync).
+    /// Adds `transform` — the ship rotation as a 9-element column-major
+    /// matrix sourced from `nalgebra::Matrix3::as_slice()`. The JS renderer
+    /// multiplies this into its model matrix so ships visually bank/pitch/
+    /// yaw as the player inputs torque (previously ships were visually fixed
+    /// even when rotating physically).
     pub fn get_ship_positions(&self) -> String {
         let positions: Vec<serde_json::Value> = self
             .ships
             .iter()
             .map(|s| {
+                let r = s.rotation.as_slice();
                 serde_json::json!({
                     "id": s.id,
                     "x": s.position.x,
@@ -564,10 +657,63 @@ impl GameEngine {
                     "energy": s.energy,
                     "thrust": s.thrust_level,
                     "glitch_ready": s.glitch_drive_ready,
+                    "transform": [r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]],
                 })
             })
             .collect();
         serde_json::to_string(&positions).unwrap_or_default()
+    }
+
+    /// Get active projectiles as JSON (consumed by renderer.js to draw
+    /// bullet/plasma/rail/missile streaks in the scene). Each entry contains:
+    ///   `id`, `owner_id`, `weapon`, `spawn_frame`, `age`, `ttl`,
+    ///   `x/y/z` current position, `px/py/pz` previous (one-tick-ago) position
+    ///   for streak rendering, `vx/vy/vz` velocity, `color` 3-tuple.
+    pub fn get_projectiles(&self) -> String {
+        let snapshot: Vec<serde_json::Value> = self
+            .projectiles
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "id": p.id,
+                    "owner_id": p.owner_id,
+                    "weapon": p.weapon,
+                    "spawn_frame": p.spawn_frame,
+                    "age": p.age,
+                    "ttl": p.ttl,
+                    "x": p.position.x,
+                    "y": p.position.y,
+                    "z": p.position.z,
+                    "px": p.prev_position.x,
+                    "py": p.prev_position.y,
+                    "pz": p.prev_position.z,
+                    "vx": p.velocity.x,
+                    "vy": p.velocity.y,
+                    "vz": p.velocity.z,
+                    "color": p.color,
+                    "homing": p.homing,
+                })
+            })
+            .collect();
+        serde_json::to_string(&snapshot).unwrap_or_default()
+    }
+
+    /// Spawn a projectile for player_1 from JS. Mirrors the JS-side weapon
+    /// cooldown / energy gating in fixedUpdate(); this only handles the
+    /// physics side.
+    pub fn fire_weapon(&mut self, weapon: &str) {
+        self.spawn_projectile("player_1", weapon);
+    }
+
+    /// Spawn a projectile for player_2 (used in PvP mode when Enter is held).
+    pub fn player2_fire_weapon(&mut self, weapon: &str) {
+        self.spawn_projectile("player_2", weapon);
+    }
+
+    /// Spawn a projectile for the AI enemy (used by Rhai scripts through the
+    /// existing `fire_vector_cannon` command, but also callable from JS).
+    pub fn enemy_fire_weapon(&mut self, weapon: &str) {
+        self.spawn_projectile("enemy_apex", weapon);
     }
 
     /// Send input from JS (pitch, yaw, roll, throttle) with frame delta.
@@ -617,20 +763,41 @@ impl GameEngine {
         self.ai_active = active;
     }
 
-    /// Reset ships for a specific game mode.
-    /// - "pvai": player_1 + enemy_apex (AI enabled)
-    /// - "pvp":  player_1 + player_2 (AI disabled)
+    /// Reset ships for a specific game mode and place opponent at a starting
+    /// offset facing toward player_1 so the camera immediately frames both.
+    /// - "pvai": player_1 at origin + enemy_apex behind/below
+    /// - "pvp":  player_1 at origin + player_2 in front (rotated 180°)
+    /// All projectiles are cleared on mode switch.
     pub fn reset_ships_for_mode(&mut self, mode: &str) {
         self.ships.clear();
+        self.projectiles.clear(); // fresh arena = fresh projectile field
         match mode {
             "pvp" => {
                 self.ships.push(ShipState::new("player_1"));
-                self.ships.push(ShipState::new("player_2"));
+                // Player 2 starts ahead (negative Z) facing back toward P1.
+                let mut p2 = ShipState::new("player_2");
+                p2.position = Vector3::new(0.0, 3.0, -90.0);
+                // 180° around Y → model forward (local -Z) maps to world +Z,
+                // which points back at P1 at the origin.
+                p2.rotation = Matrix3::new(
+                    -1.0, 0.0, 0.0,
+                     0.0, 1.0, 0.0,
+                     0.0, 0.0, -1.0,
+                );
+                self.ships.push(p2);
                 self.ai_active = false;
             }
             "pvai" => {
                 self.ships.push(ShipState::new("player_1"));
-                self.ships.push(ShipState::new("enemy_apex"));
+                // Enemy starts off to the side and below, facing P1.
+                let mut e = ShipState::new("enemy_apex");
+                e.position = Vector3::new(-30.0, 6.0, -110.0);
+                e.rotation = Matrix3::new(
+                    -1.0, 0.0, 0.0,
+                     0.0, 1.0, 0.0,
+                     0.0, 0.0, -1.0,
+                );
+                self.ships.push(e);
                 self.ai_active = true;
             }
             _ => {
@@ -639,6 +806,14 @@ impl GameEngine {
                 self.ai_active = true;
             }
         }
+    }
+
+    /// Backward-compat alias — JS calls `engine.reset_ships(mode)` though the
+    /// canonical Rust method is `reset_ships_for_mode`. Without this, every
+    /// "LAUNCH MISSION" press silently no-ops and player_2 never appears.
+    #[wasm_bindgen(js_name = reset_ships)]
+    pub fn reset_ships_alias(&mut self, mode: &str) {
+        self.reset_ships_for_mode(mode);
     }
 
     /// Return the default weapon list as a JSON array string.

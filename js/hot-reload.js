@@ -7,6 +7,7 @@ import { CONFIG } from './config.js';
 import { elements } from './dom.js';
 import { logRhaiError, clearRhaiErrorsForSource } from './rhai-errors.js';
 import { syncWeaponsFromEngine } from './weapon-select.js';
+import { dbg } from './dbg.js';
 
 let _hotReloadTimer = null;
 const _hotReloadCache = new Map();
@@ -71,7 +72,7 @@ export function startRhaiHotReload(engine) {
                         _hotReloadCache.set(s.path, content);
                         try {
                             engine.load_script(content);
-                            console.log('[HOT-RELOAD]', s.name, 'reloaded',
+                            dbg.log('[HOT-RELOAD]', s.name, 'reloaded',
                                 '(' + content.length + ' chars,' + (content.length - prev.length) + ' diff)');
 
                             if (elements.hotReload) {
@@ -87,11 +88,11 @@ export function startRhaiHotReload(engine) {
 
                             if (s.name === 'weapons.rhai') {
                                 syncWeaponsFromEngine(engine);
-                                console.log('[HOT-RELOAD] Weapons re-synced from engine');
+                                dbg.log('[HOT-RELOAD] Weapons re-synced from engine');
                             }
                         } catch (loadErr) {
                             const loadErrMsg = String(loadErr);
-                            console.error('[HOT-RELOAD]', s.name, 'reload FAILED:', loadErrMsg);
+                            dbg.error('[HOT-RELOAD]', s.name, 'reload FAILED:', loadErrMsg);
                             logRhaiError(s.name, 'Parse error: ' + loadErrMsg, 'load');
                             if (elements.hotReload) {
                                 elements.hotReload.textContent = s.name + ' ✗';
@@ -107,7 +108,7 @@ export function startRhaiHotReload(engine) {
                     }
                 } catch (e) {
                     const errMsg = String(e);
-                    console.warn('[HOT-RELOAD] Fetch failed:', errMsg);
+                    dbg.warn('[HOT-RELOAD] Fetch failed:', errMsg);
                     logRhaiError(s.name, 'Fetch failed: ' + errMsg, 'fetch');
                     if (elements.hotReload) {
                         elements.hotReload.textContent = 'RHAI: ERR';

@@ -6,6 +6,7 @@ import { elements } from './dom.js';
 import { state } from './state.js';
 import { updateHUD } from './hud.js';
 import { setCloudStatus, initCloudRecheck, CloudState } from '../../shared/cloud-status.js';
+import { dbg } from './dbg.js';
 
 // ═══ WebSocket Multiplayer Client ══════════════════════════════
 
@@ -27,17 +28,17 @@ export function connectWebSocket() {
                 const msg = JSON.parse(event.data);
                 switch (msg.type) {
                     case 'welcome':
-                        console.log('[WS]', msg.message, 'as', msg.yourID);
+                        dbg.log('[WS]', msg.message, 'as', msg.yourID);
                         break;
                     case 'state':
                         updateMultiplayerState(msg);
                         break;
                     case 'event':
-                        console.log('[WS EVENT]', msg.message);
+                        dbg.log('[WS EVENT]', msg.message);
                         break;
                 }
             } catch (e) {
-                console.warn('[WS] Parse error:', e);
+                dbg.warn('[WS] Parse error:', e);
             }
         };
 
@@ -52,7 +53,7 @@ export function connectWebSocket() {
             elements.wsStatus.textContent = 'ERROR';
         };
     } catch (e) {
-        console.warn('[WS] Connection error:', e);
+        dbg.warn('[WS] Connection error:', e);
         setTimeout(connectWebSocket, 3000);
     }
 }
@@ -111,9 +112,9 @@ export async function initPuter() {
 
         state.puterReady = true;
         setCloudStatus('cloud-status-indicator', CloudState.CONNECTED, 'Puter connected — cloud sync active');
-        console.log('[PUTER] SDK initialized successfully');
+        dbg.log('[PUTER] SDK initialized successfully');
     } catch (e) {
-        console.warn('[PUTER] Init error:', e);
+        dbg.warn('[PUTER] Init error:', e);
         setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Puter unavailable — using local storage');
     }
 }
@@ -137,7 +138,7 @@ export async function generateMissionBriefing() {
         elements.briefingText.textContent = response || 'Mission parameters corrupted — proceed with default directive.';
         elements.missionText.textContent = response || 'Sector Omega — eliminate all hostiles.';
     } catch (e) {
-        console.warn('[AI] Briefing generation failed:', e);
+        dbg.warn('[AI] Briefing generation failed:', e);
         elements.briefingText.textContent =
             'Sector Omega — default directives loaded. Eliminate all hostiles. Good luck, pilot.';
     }
@@ -178,10 +179,10 @@ export async function saveLoadout(loadout) {
         setSync("\u23f3", "Saving...");
         await puter.kv.set("omni_loadout_v1", JSON.stringify(loadout));
         setSync("\u2601\ufe0f", "Saved");
-        console.log("[PUTER KV] Loadout saved");
+        dbg.log("[PUTER KV] Loadout saved");
     } catch (e) {
         setSync("\u26a0\ufe0f", "Local");
-        console.warn("[PUTER KV] Save error (local fallback active):", e);
+        dbg.warn("[PUTER KV] Save error (local fallback active):", e);
         setTimeout(function() {
             if (st && (st.textContent === "Local" || st.textContent === "Error")) setSync("\u2601\ufe0f", "Ready");
         }, 3000);
@@ -201,11 +202,11 @@ export async function loadLoadout() {
             }
         }
     } catch (e) {
-        console.warn('[PUTER KV] Load error, falling back to local:', e);
+        dbg.warn('[PUTER KV] Load error, falling back to local:', e);
     }
     // Fallback to localStorage
     const local = loadoutFromLocal();
-    if (local) console.log('[LOADOUT] Restored from localStorage (offline fallback)');
+    if (local) dbg.log('[LOADOUT] Restored from localStorage (offline fallback)');
     return local;
 }
 
@@ -219,9 +220,9 @@ export async function saveReplay(replayData) {
         }
         const blob = new Blob([replayData], { type: 'application/octet-stream' });
         await puter.fs.write('/VectorStrike_Replays/match_' + Date.now() + '.bin', blob);
-        console.log('[PUTER FS] Replay saved to cloud drive');
+        dbg.log('[PUTER FS] Replay saved to cloud drive');
     } catch (e) {
-        console.warn('[PUTER FS] Save error:', e);
+        dbg.warn('[PUTER FS] Save error:', e);
     }
 }
 
@@ -243,7 +244,7 @@ const AUTH_KEYS = {
 export async function signIn() {
     try {
         if (typeof puter === 'undefined' || !puter.auth || typeof puter.auth.signIn !== 'function') {
-            console.warn('[PUTER] Auth unavailable');
+            dbg.warn('[PUTER] Auth unavailable');
             return null;
         }
         setCloudStatus('cloud-status-indicator', CloudState.CHECKING, 'Signing in to Puter...');
@@ -253,13 +254,13 @@ export async function signIn() {
             state.puterReady = true;
             try { localStorage.setItem(AUTH_KEYS.local, JSON.stringify(user)); } catch (_) {}
             setCloudStatus('cloud-status-indicator', CloudState.CONNECTED, 'Signed in as ' + (user.username || user.name));
-            console.log('[PUTER] Signed in as', user.username || user.name);
+            dbg.log('[PUTER] Signed in as', user.username || user.name);
             // Refresh briefing now that AI is available
             generateMissionBriefing();
         }
         return user || null;
     } catch (e) {
-        console.warn('[PUTER] Sign in failed:', e);
+        dbg.warn('[PUTER] Sign in failed:', e);
         setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Sign in failed');
         return null;
     }
@@ -278,10 +279,10 @@ export async function signOut() {
         state.puterReady = false;
         try { localStorage.removeItem(AUTH_KEYS.local); } catch (_) {}
         setCloudStatus('cloud-status-indicator', CloudState.DISCONNECTED, 'Signed out');
-        console.log('[PUTER] Signed out');
+        dbg.log('[PUTER] Signed out');
         return true;
     } catch (e) {
-        console.warn('[PUTER] Sign out failed:', e);
+        dbg.warn('[PUTER] Sign out failed:', e);
         return false;
     }
 }
@@ -373,10 +374,10 @@ export async function submitScore(score, meta = {}) {
             }
             merged.sort((a, b) => b.score - a.score);
             await puter.kv.set(SCORE_KEYS.cloud, JSON.stringify(merged.slice(0, 50)));
-            console.log('[PUTER] Score synced to cloud:', entry.score);
+            dbg.log('[PUTER] Score synced to cloud:', entry.score);
         }
     } catch (e) {
-        console.warn('[PUTER] Score cloud sync failed (local saved):', e);
+        dbg.warn('[PUTER] Score cloud sync failed (local saved):', e);
     }
 
     return true;
@@ -416,7 +417,7 @@ export async function getLeaderboard() {
             }
         }
     } catch (e) {
-        console.warn('[PUTER] Leaderboard cloud read failed (local only):', e);
+        dbg.warn('[PUTER] Leaderboard cloud read failed (local only):', e);
     }
 
     return board;

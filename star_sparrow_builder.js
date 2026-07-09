@@ -14,6 +14,14 @@
 (function () {
 'use strict';
 
+// Debug gating — mirrors the shared dbg.js pattern
+var DBG = typeof window !== 'undefined' && window.DEBUG === true;
+var dbg = {
+  warn: function() { if (DBG) console.warn.apply(console, arguments); },
+  error: function() { if (DBG) console.error.apply(console, arguments); },
+  log: function() { if (DBG) console.log.apply(console, arguments); },
+};
+
 // ============================================================================
 // Shared env accessor — pulls refs from the index.html-exposed window slots.
 // Returns nulls for anything not yet mounted; callers must null-check.
@@ -216,7 +224,7 @@ function registerShipEntry() {
                 desc: 'Modular Build',
             });
         }
-        console.log('[SS] Registered ship in SHIPS catalog');
+        dbg.log('[SS] Registered ship in SHIPS catalog');
     }
 }
 
@@ -261,7 +269,7 @@ async function loadModularShip(name, url) {
     const _env = env();
     const gl = _env.gl;
     if (!gl || !_env.ARENA || !_env.ARENA.program) {
-        console.warn('[SS] WebGL/ARENA not ready — deferring modular load');
+        dbg.warn('[SS] WebGL/ARENA not ready — deferring modular load');
         requestAnimationFrame(function () { loadModularShip(name, url); });
         return null;
     }
@@ -402,10 +410,10 @@ async function loadModularShip(name, url) {
 
         const model = { modular: true, unitScale: unitScale, parts: partsArr, totalParts: partsArr.length };
         if (_env.SHIPS) _env.SHIPS.models[name] = model;
-        console.log('[SS] Loaded Star Sparrow modular: ' + partsArr.length + ' part VAOs (unitScale=' + unitScale.toFixed(3) + ')');
+        dbg.log('[SS] Loaded Star Sparrow modular: ' + partsArr.length + ' part VAOs (unitScale=' + unitScale.toFixed(3) + ')');
         return model;
     } catch (e) {
-        console.warn('[SS] loadModularShip failed:', e.message);
+        dbg.warn('[SS] loadModularShip failed:', e.message);
         return null;
     }
 }
@@ -835,11 +843,11 @@ function persistBuilds() {
         localStorage.setItem('omni_buildout_v1', json);
         if (typeof puter !== 'undefined' && puter && puter.kv) {
             puter.kv.set('omni_buildout_v1', json).catch(function (e) {
-                console.warn('[SS] Puter KV save error:', e);
+                dbg.warn('[SS] Puter KV save error:', e);
             });
         }
     } catch (e) {
-        console.warn('[SS] persist failed:', e);
+        dbg.warn('[SS] persist failed:', e);
     }
 }
 
@@ -852,23 +860,23 @@ async function hydrateBuilds() {
                 // Sync cloud value to localStorage so offline boot is consistent
                 try { localStorage.setItem('omni_buildout_v1', typeof remote === 'string' ? remote : JSON.stringify(remote)); } catch (_) {}
                 applyPayload(JSON.parse(remote));
-                console.log('[SS] Hydrated from Puter KV');
+                dbg.log('[SS] Hydrated from Puter KV');
                 return;
             }
         }
     } catch (e) {
-        console.warn('[SS] Puter hydrate failed, falling back to local:', e);
+        dbg.warn('[SS] Puter hydrate failed, falling back to local:', e);
     }
     // 2) Fall back to localStorage
     try {
         const raw = localStorage.getItem('omni_buildout_v1');
         if (raw) {
             applyPayload(JSON.parse(raw));
-            console.log('[SS] Hydrated from localStorage');
+            dbg.log('[SS] Hydrated from localStorage');
             return;
         }
     } catch (e) {
-        console.warn('[SS] localStorage hydrate failed:', e);
+        dbg.warn('[SS] localStorage hydrate failed:', e);
     }
     // 3) Fall back to default preset
     loadPresetIntoBuildout(BUILDOUT.currentPreset);
@@ -901,7 +909,7 @@ function applyBuildToGame() {
         try {
             eng.set_ship_stats('player_1', stats.mass, stats.thrust_mult, stats.drag, stats.angular_drag);
         } catch (e) {
-            console.warn('[SS] set_ship_stats failed:', e);
+            dbg.warn('[SS] set_ship_stats failed:', e);
         }
     }
     persistBuilds();
@@ -933,7 +941,7 @@ async function initStarSparrowBuilder() {
         }
     };
     setTimeout(tryApply, 250);
-    console.log('[SS] Build-out module ready');
+    dbg.log('[SS] Build-out module ready');
 }
 
 window.__SS = {
@@ -1003,7 +1011,7 @@ function _ssPreviewCompileShader(gl, type, src) {
     const s = gl.createShader(type);
     gl.shaderSource(s, src); gl.compileShader(s);
     if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-        console.warn('[SS] Preview shader compile:', gl.getShaderInfoLog(s));
+        dbg.warn('[SS] Preview shader compile:', gl.getShaderInfoLog(s));
         gl.deleteShader(s);
         return null;
     }
@@ -1147,7 +1155,7 @@ async function openPreview(canvas) {
     const program = gl.createProgram();
     gl.attachShader(program, vs); gl.attachShader(program, fs); gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        console.warn('[SS] Preview program link failed');
+        dbg.warn('[SS] Preview program link failed');
         return;
     }
     gl.useProgram(program);
@@ -1262,7 +1270,7 @@ async function openPreview(canvas) {
         __preview.model = { modular: true, unitScale: built.unitScale, parts: built.parts };
         refreshPreviewMeta();
     } catch (e) {
-        console.warn('[SS] Preview GLB load failed:', e);
+        dbg.warn('[SS] Preview GLB load failed:', e);
         const meta = canvas.parentElement && canvas.parentElement.querySelector('.ss-preview-meta');
         if (meta) meta.textContent = 'PREVIEW LOAD FAILED';
     }

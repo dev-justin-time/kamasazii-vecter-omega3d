@@ -20,6 +20,7 @@ import { syncWeaponsFromEngine } from './weapon-select.js';
 // cycleWeapon + selectWeaponByIndex are consumed by input.js, not main.js
 import { startRhaiHotReload } from './hot-reload.js';
 import { analytics, EventType } from './analytics.js';
+import { dbg } from './dbg.js';
 
 // ─── Boot ─────────────────────────────────────────────────────
 
@@ -31,7 +32,7 @@ async function loadWasmEngine() {
         elements.engineVer.textContent = 'v' + (engine.version ? engine.version() : '0.1.0');
         return engine;
     } catch (e) {
-        console.error('[WASM] Failed to load engine:', e);
+        dbg.error('[WASM] Failed to load engine:', e);
         elements.loading.querySelector('.loading-text').textContent = 'WASM load failed: ' + e.message;
         ClientErrorLogger.report('wasm', e, 'loadWasmEngine');
         return null;
@@ -64,7 +65,7 @@ async function init() {
         try {
             engine.init_gl('gameCanvas');
         } catch (e) {
-            console.warn('[WASM] init_gl failed (renderer will use JS fallback):', e);
+            dbg.warn('[WASM] init_gl failed (renderer will use JS fallback):', e);
         }
         syncWeaponsFromEngine(engine);
         startRhaiHotReload(engine);
@@ -304,11 +305,11 @@ setTimeout(() => {
 function _registerAnalyticsHooks() {
     // Example: log all ship spawn events to console during development
     analytics.on(EventType.SHIP_SPAWN, (event) => {
-        console.log('[ANALYTICS] Ship spawned:', event.shipId, event.shipModel);
+        dbg.log('[ANALYTICS] Ship spawned:', event.shipId, event.shipModel);
     });
 
     analytics.on(EventType.WEAPON_FIRE, (event) => {
-        console.log('[ANALYTICS] Weapon fired:', event.weapon, 'by', event.shipId);
+        dbg.log('[ANALYTICS] Weapon fired:', event.weapon, 'by', event.shipId);
     });
 
     // Future: add AI-chat summarization hook, Puter KV flush trigger, etc.

@@ -5,6 +5,7 @@
 // Imported by main.js — hooks into the existing game loop.
 
 import { state } from './state.js';
+import { dbg } from './dbg.js';
 
 // ═══ Constants ═══════════════════════════════════════════════════
 
@@ -56,7 +57,7 @@ export class GameAnalytics {
         this._beforeUnloadHandler = () => { this.flush(); };
         window.addEventListener('beforeunload', this._beforeUnloadHandler);
 
-        console.log('[ANALYTICS] Session started:', this._sessionId);
+        dbg.log('[ANALYTICS] Session started:', this._sessionId);
     }
 
     // ── Hook Registration ──────────────────────────────────────
@@ -101,7 +102,7 @@ export class GameAnalytics {
         if (callbacks) {
             for (const cb of callbacks) {
                 try { cb(event); } catch (e) {
-                    console.warn('[ANALYTICS] Listener error:', e);
+                    dbg.warn('[ANALYTICS] Listener error:', e);
                 }
             }
         }

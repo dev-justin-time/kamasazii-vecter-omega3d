@@ -4,6 +4,7 @@
 
 import { mat4Identity, mat4Multiply, mat4Translate, mat4FromQuat, mat4Scale } from './math.js';
 import { gl } from './dom.js';
+import { dbg } from './dbg.js';
 
 export const ARENA = {
     loaded: false,
@@ -140,15 +141,15 @@ export async function loadArena() {
             ARENA.animTimes = readAccessor(smp.input);
             ARENA.animTranslations = readAccessor(smp.output);
             ARENA.animDuration = ARENA.animTimes[ARENA.animTimes.length - 1] || 10;
-            console.log('[ARENA] Animation loaded: ' + ARENA.animTimes.length + ' keyframes, ' + ARENA.animDuration.toFixed(1) + 's');
+            dbg.log('[ARENA] Animation loaded: ' + ARENA.animTimes.length + ' keyframes, ' + ARENA.animDuration.toFixed(1) + 's');
         }
 
         ARENA.meshes = meshes;
         ARENA.loaded = true;
-        console.log('[ARENA] Vaporwave grid loaded: ' + meshes.length + ' primitives, ~' +
+        dbg.log('[ARENA] Vaporwave grid loaded: ' + meshes.length + ' primitives, ~' +
             meshes.reduce((s,m)=>s+m.indexCount,0) + ' triangles');
     } catch (e) {
-        console.warn('[ARENA] Failed to load vaporwave model:', e);
+        dbg.warn('[ARENA] Failed to load vaporwave model:', e);
     }
 }
 
