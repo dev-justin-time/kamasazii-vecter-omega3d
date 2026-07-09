@@ -8,6 +8,15 @@ import { ARENA } from './arena.js';
 import { state } from './state.js';
 import { saveLoadout } from './network.js';
 
+// ── Deduped console warn for ship load failures (60s window) ───────────────
+let _lastShipWarnAt = 0;
+function _dedupedWarn(label, ...args) {
+  if (Date.now() - _lastShipWarnAt > 60000) {
+    _lastShipWarnAt = Date.now();
+    console.warn(label, ...args);
+  }
+}
+
 // ─── Pre-allocated reusable color buffer (avoid alloc in render) ──
 const _tmpCols = new Float32Array(3 * 12000); // up to 12k verts
 
@@ -184,7 +193,7 @@ export async function loadShipGLB(name, url) {
         console.log('[SHIP] Loaded ' + name + ': ' + model.vertexCount + ' verts, ' + model.indexCount + ' indices, scale=' + unitScale.toFixed(3));
         return model;
     } catch (e) {
-        console.warn('[SHIP] Failed to load ' + name + ' from ' + url + ': ' + e.message);
+        _dedupedWarn('[SHIP] Failed to load ' + name + ' from ' + url + ': ' + e.message);
         return null;
     }
 }

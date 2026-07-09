@@ -6,6 +6,15 @@ import { elements } from './dom.js';
 import { state } from './state.js';
 import { WEAPON_DEFS, WEAPON_ORDER } from './weapons.js';
 
+// ── Deduped console warn for weapon sync errors (60s window) ───────────────
+let _lastWeaponWarnAt = 0;
+function _dedupedWarn(label, ...args) {
+  if (Date.now() - _lastWeaponWarnAt > 60000) {
+    _lastWeaponWarnAt = Date.now();
+    console.warn(label, ...args);
+  }
+}
+
 export { WEAPON_DEFS, WEAPON_ORDER };
 
 export function cycleWeapon(direction) {
@@ -40,7 +49,7 @@ export function syncWeaponsFromEngine(engine) {
             const merged = [];
             for (const name of engineWeapons) {
                 if (WEAPON_DEFS[name]) merged.push(name);
-                else console.warn('[WEAPON] Unknown weapon from engine:', name);
+                else _dedupedWarn('[WEAPON] Unknown weapon from engine:', name);
             }
             if (merged.length > 0) {
                 state.availableWeapons = merged;
@@ -54,6 +63,6 @@ export function syncWeaponsFromEngine(engine) {
             }
         }
     } catch (e) {
-        console.warn('[WEAPON] Failed to sync from engine:', e);
+        _dedupedWarn('[WEAPON] Failed to sync from engine:', e);
     }
 }
