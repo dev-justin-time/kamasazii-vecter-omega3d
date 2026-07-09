@@ -177,7 +177,11 @@ const BUILDOUT = {
      * also add +20% heat and +10% cooldown (they're punishing per shot).
      */
     computeWeaponModifiers() {
-        const parts = STARSPARROW.parts.filter(function (p) { return this.enabledParts.has(p.id); });
+        // Arrow callbacks so `this` correctly refers to BUILDOUT — the prior
+        // `function` expressions lost `this` and threw "Cannot read properties
+        // of undefined (reading 'enabledParts')" at applyBuildToGame time.
+        const self = this;
+        const parts = STARSPARROW.parts.filter(function (p) { return self.enabledParts.has(p.id); });
         const cannonIds = parts.filter(function (p) { return p.id.startsWith('cannon'); }).length;
         const heavyIds  = parts.filter(function (p) { return p.id.startsWith('heavy');  }).length;
         const thrustMult = 1 + parts.filter(function (p) { return p.cat === 'thruster'; }).length * 0.18

@@ -87,8 +87,13 @@ async function flush() {
     if (typeof puter === 'undefined' || !puter || !puter.fs) return;
     if (!state.puterReady) { scheduleFlush(); return; }
     flushing = true;
+    // Hoisted so the `catch` block can re-queue the entry slice. If we
+    // declared it inside the try, the const would be try-scoped and
+    // invisible to catch — which is what produced the original console
+    // `ReferenceError: toFlush is not defined` crash.
+    let toFlush = [];
     try {
-        const toFlush = buffer.splice(0, buffer.length);
+        toFlush = buffer.splice(0, buffer.length);
         const date = new Date().toISOString().slice(0, 10);
         const logPath = '/VectorStrike_Logs/errors-' + date + '.jsonl';
         const newContent = toFlush.map(e => JSON.stringify(e)).join('\n') + '\n';
@@ -100,7 +105,10 @@ async function flush() {
         const blob = new Blob([existing + newContent], { type: 'text/plain' });
         await puter.fs.write(logPath, blob);
     } catch (e) {
-        buffer.unshift(...toFlush);
+        // toFlush is guaranteed defined (declared above the try) — even
+        // when an exception fires before the first assignment, the
+        // hoisted `let toFlush = []` gives us an empty array to unshift.
+        if (toFlush.length) buffer.unshift(...toFlush);
         console.warn('[CLIENT-ERROR] Puter FS write failed:', e);
     } finally {
         flushing = false;

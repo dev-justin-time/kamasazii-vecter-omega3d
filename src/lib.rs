@@ -391,6 +391,178 @@ impl GameEngine {
         }
     }
 
+    /// Spawn a projectile from the named ship's muzzle along its forward axis.
+    /// Returns silently if the ship is missing or the weapon key is unknown.
+    /// Homing weapons (currently `missile`) snap toward the nearest alive
+    /// non-owner ship on every tick via `update_projectiles`.
+    fn spawn_projectile(&mut self, owner_id: &str, weapon: &str) {
+        let spec = match weapon_spec(weapon) {
+            Some(s) => s,
+            None => {
+                web_sys::console::log_1(
+                    &format!("[WEAPON] unknown weapon: {}", weapon).into(),
+                );
+                return;
+            }
+        };
+
+        // Copy the bits we need out of `self.ships` so we can borrow mutably
+        // again right after to push the projectile.
+        let (spawn_pos, forward) = {
+            let ship = match self.ships.iter().find(|s| s.id == owner_id) {
+                Some(s) => s,
+                None => {
+                    web_sys::console::log_1(
+                        &format!("[WEAPON] unknown ship: {}", owner_id).into(),
+                    );
+                    return;
+                }
+            };
+            // Forward in ship-local space = -Z (matches apply_thrust / camera)
+            let fwd = ship.rotation * Vector3::new(0.0, 0.0, -1.0);
+            (ship.position + fwd * 5.0, fwd)
+        };
+
+        let id = self.next_projectile_id;
+        self.next_projectile_id = self.next_projectile_id.wrapping_add(1);
+
+        self.projectiles.push(ProjectileState {
+            id,
+            owner_id: owner_id.to_string(),
+            spawn_frame: self.frame_count,
+            position: spawn_pos,
+            prev_position: spawn_pos,
+            velocity: forward * spec.speed,
+            weapon: weapon.to_string(),
+            color: spec.color,
+            damage: spec.damage,
+            hit_radius: spec.hit_radius,
+            homing: spec.homing,
+            turn_rate: spec.turn_rate,
+            ttl: spec.ttl,
+            age: 0.0,
+        });
+
+        web_sys::console::log_1(
+            &format!("[WEAPON] {} fired {} (proj #{})", owner_id, weapon, id).into(),
+        );
+    }
+
+    /// Advance every projectile one tick: integrate position, curve homing
+    /// missiles toward the nearest alive target, decay age, run ship-vs-
+    /// projectile collision, and despawn expired or consumed shots.
+    ///
+    /// We use `mem::take` to move the projectile Vec out of `self` so we can
+    /// still mutably borrow `self.ships` for collision within the same loop.
+    fn update_projectiles(&mut self, dt: f32) {
+        let mut next: Vec<ProjectileState> = Vec::with_capacity(self.projectiles.len());
+        let snapshot: Vec<ProjectileState> = std::mem::take(&mut self.projectiles);
+        for mut p in snapshot {
+            // Snapshot last-frame position before moving so the renderer can
+            // draw a streak from prev → current (visible motion blur).
+            p.prev_position = p.position;
+
+            if p.homing {
+                // Pick the nearest alive non-owner ship. For two-player arena
+                // this resolves to the obvious target — expand later for sqms.
+                let mut best: Option<(f32, Vector3<f32>)> = None;
+                for ship in self.ships.iter() {
+                    if ship.id == p.owner_id || ship.health <= 0.0 {
+                        continue;
+                    }
+                    let d_sq = (ship.position - p.position).norm_squared();
+                    if best.map_or(true, |b| d_sq < b.0) {
+                        best = Some((d_sq, ship.position));
+                    }
+                }
+                if let Some((_, tgt)) = best {
+                    let to_target = tgt - p.position;
+                    let dist = to_target.norm();
+                    if dist > 1e-3 {
+                        let desired = to_target / dist;
+                        let v_mag = p.velocity.norm();
+                        if v_mag > 1e-3 {
+                            let current = p.velocity / v_mag;
+                            // Rotate `current` toward `desired` by at most
+                            // turn_rate * dt radians (true turn-rate clamp).
+                            let cos_a = current.dot(&desired).clamp(-1.0, 1.0);
+                            let angle = cos_a.acos();
+                            let max_turn = (p.turn_rate * dt).min(angle);
+                            let sin_a_max = max_turn.sin();
+                            let cos_a_step = max_turn.cos();
+                            // Rodrigues rotation: rotate `current` around
+                            // the (current × desired) axis. Then re-normalize
+                            // to recover direction; keep speed constant.
+                            let axis = current.cross(&desired);
+                            let axis_len = axis.norm();
+                            let new_dir = if axis_len < 1e-4 {
+                                // Already aligned — no rotation needed.
+                                desired
+                            } else {
+                                let k = axis / axis_len;
+                                let v = current;
+                                let rotated = Vector3::new(
+                                    v.x * cos_a_step
+                                        + (k.y * v.z - k.z * v.y) * sin_a_max
+                                        + k.x * (k.dot(&v)) * (1.0 - cos_a_step),
+                                    v.y * cos_a_step
+                                        + (k.z * v.x - k.x * v.z) * sin_a_max
+                                        + k.y * (k.dot(&v)) * (1.0 - cos_a_step),
+                                    v.z * cos_a_step
+                                        + (k.x * v.y - k.y * v.x) * sin_a_max
+                                        + k.z * (k.dot(&v)) * (1.0 - cos_a_step),
+                                );
+                                rotated.normalize()
+                            };
+                            p.velocity = new_dir * v_mag;
+                        }
+                    }
+                }
+            }
+
+            // Integrate velocity — cap to keep fast weapons from overshooting
+            // in single big steps and tunneling through a ship.
+            const STEP_CAP: f32 = 0.05;
+            let step_dt = dt.min(STEP_CAP);
+            p.position += p.velocity * step_dt;
+            p.age += dt;
+            if p.age >= p.ttl {
+                continue;
+            }
+
+            // Ship-vs-projectile collision. Approximate ship as a sphere of
+            // radius 2.5 (matches `_scale` 2.5 used by renderer.js fallback).
+            let ship_radius: f32 = 2.5;
+            let mut consumed = false;
+            for ship in self.ships.iter_mut() {
+                if ship.id == p.owner_id || ship.health <= 0.0 {
+                    continue;
+                }
+                let diff = p.position - ship.position;
+                let hit_r = p.hit_radius + ship_radius;
+                if diff.norm_squared() < hit_r * hit_r {
+                    ship.health = (ship.health - p.damage).max(0.0);
+                    if ship.health <= 0.0 {
+                        ship.glitch_drive_ready = false;
+                    }
+                    web_sys::console::log_1(
+                        &format!(
+                            "[HIT] {} hit {} for {:.1} dmg → hp {:.1}",
+                            p.owner_id, ship.id, p.damage, ship.health
+                        )
+                        .into(),
+                    );
+                    consumed = true;
+                    break;
+                }
+            }
+            if !consumed {
+                next.push(p);
+            }
+        }
+        self.projectiles = next;
+    }
+
     /// Initialize WebGL2 context and compile wireframe shaders
     pub fn init_gl(&mut self, canvas_id: &str) -> Result<(), JsValue> {
         let document = web_sys::window().unwrap().document().unwrap();

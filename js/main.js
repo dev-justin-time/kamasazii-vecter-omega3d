@@ -203,6 +203,14 @@ function fixedUpdate(dt) {
     }
 
     // ── Fire weapon ───────────────────────────────────────────
+    let p2Fire = false;
+    if (state.gameMode === 'pvp') {
+        // Player 2 fires on Enter while PvP mode is active. Cooldowns are
+        // shared with player_1 for simplicity (single weapon-inventory UI),
+        // but projectiles spawn from P2's muzzle and travel toward P1.
+        p2Fire = !!keys['enter'];
+    }
+
     if (wantsFire) {
         const def = WEAPON_DEFS[state.weapon];
         const cd = state.weaponCooldowns[state.weapon] || 0;
@@ -216,6 +224,21 @@ function fixedUpdate(dt) {
             // Analytics: track weapon fire (projectile created)
             analytics.trackWeaponFire(state.weapon, 'player_1');
             sendFire(state.weapon);
+        }
+    }
+
+    // ── Player 2 fire (PvP only) ───────────────────────────────────
+    if (p2Fire) {
+        // P2 shares P1's weapon cooldown so the UI doesn't desync.
+        const def = WEAPON_DEFS[state.weapon];
+        const cd = state.weaponCooldowns[state.weapon] || 0;
+        if (def && cd <= 0 && state.p2.energy >= def.energy_cost) {
+            state.p2.energy -= def.energy_cost;
+            state.weaponCooldowns[state.weapon] = def.cooldown;
+            if (state.engine) {
+                try { state.engine.player2_fire_weapon(state.weapon); } catch (_) {}
+            }
+            analytics.trackWeaponFire(state.weapon, 'player_2');
         }
     }
 

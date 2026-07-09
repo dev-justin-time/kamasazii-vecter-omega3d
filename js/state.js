@@ -15,6 +15,11 @@ export const state = {
     weapon: 'plasma_bolt',
     running: false,
     engine: null,           // Wasm GameEngine instance (may be null)
+    // Server-authoritative projectiles from the multiplayer WebSocket —
+    // normalized in network.js to match the shape produced by
+    // engine.get_projectiles(), so the renderer can concatenate and feed
+    // both through `_renderProjectiles()` without forking logic.
+    peerProjectiles: [],
     ws: null,
     puterReady: false,
     // Weapon system state

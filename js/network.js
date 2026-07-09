@@ -5,22 +5,43 @@ import { CONFIG } from './config.js';
 import { elements } from './dom.js';
 import { state } from './state.js';
 import { updateHUD } from './hud.js';
+import { WEAPON_DEFS } from './weapons.js';
 import { setCloudStatus, initCloudRecheck, CloudState } from '../../shared/cloud-status.js';
 import { dbg } from './dbg.js';
 
 // ═══ WebSocket Multiplayer Client ══════════════════════════════
+// Reconnect logic uses exponential backoff capped at 30s. Without this
+// the previous fixed-3s retry storms the dev console (and downstream
+// proxy logs) with one failed WebSocket connection per failed server.
+
+const WS_RETRY_INITIAL_MS = 1000;
+const WS_RETRY_MAX_MS = 30000;
+let _wsRetryCount = 0;
+let _wsRetryTimer = null;
+
+function _scheduleWsReconnect() {
+    if (_wsRetryTimer) return;
+    // Exp backoff: 1s, 2s, 4s, 8s, 16s, 30s (cap), 30s, ...
+    const delay = Math.min(WS_RETRY_MAX_MS, WS_RETRY_INITIAL_MS * Math.pow(2, _wsRetryCount));
+    _wsRetryCount++;
+    _wsRetryTimer = setTimeout(() => {
+        _wsRetryTimer = null;
+        connectWebSocket();
+    }, delay);
+}
 
 export function connectWebSocket() {
     const url = CONFIG.wsUrl + '?room=omega_arena&player_id=' + CONFIG.playerName;
-    elements.wsDot.className = 'status-dot connecting';
-    elements.wsStatus.textContent = 'CONNECTING...';
+    if (elements.wsDot) elements.wsDot.className = 'status-dot connecting';
+    if (elements.wsStatus) elements.wsStatus.textContent = 'CONNECTING...';
 
     try {
         state.ws = new WebSocket(url);
 
         state.ws.onopen = () => {
-            elements.wsDot.className = 'status-dot connected';
-            elements.wsStatus.textContent = 'CONNECTED';
+            _wsRetryCount = 0;  // successful connect — reset backoff
+            if (elements.wsDot) elements.wsDot.className = 'status-dot connected';
+            if (elements.wsStatus) elements.wsStatus.textContent = 'CONNECTED';
         };
 
         state.ws.onmessage = (event) => {
@@ -43,18 +64,18 @@ export function connectWebSocket() {
         };
 
         state.ws.onclose = () => {
-            elements.wsDot.className = 'status-dot disconnected';
-            elements.wsStatus.textContent = 'DISCONNECTED';
-            setTimeout(connectWebSocket, 3000);
+            if (elements.wsDot) elements.wsDot.className = 'status-dot disconnected';
+            if (elements.wsStatus) elements.wsStatus.textContent = 'DISCONNECTED';
+            _scheduleWsReconnect();
         };
 
         state.ws.onerror = () => {
-            elements.wsDot.className = 'status-dot disconnected';
-            elements.wsStatus.textContent = 'ERROR';
+            if (elements.wsDot) elements.wsDot.className = 'status-dot disconnected';
+            if (elements.wsStatus) elements.wsStatus.textContent = 'ERROR';
         };
     } catch (e) {
         dbg.warn('[WS] Connection error:', e);
-        setTimeout(connectWebSocket, 3000);
+        _scheduleWsReconnect();
     }
 }
 
@@ -66,6 +87,69 @@ function updateMultiplayerState(msg) {
             state.energy = me.energy;
             state.score = me.score;
             updateHUD();
+        }
+    }
+
+    // ─── Server projectiles ─────────────────────────────────────
+    // Each `state` message carries `msg.projectiles` — server-authoritative
+    // bullets/plasma/rails/missiles fired by every connected peer. We
+    // normalize each into the same flat shape that `engine.get_projectiles()`
+    // emits (x/y/z, px/py/pz, vx/vy/vz, color, weapon, owner_id, age, ttl),
+    // so the renderer can concat WASM + peer projectiles and feed them
+    // all through the existing `_renderProjectiles` line-list pipeline
+    // without forking any per-weapon geometry logic.
+    //
+    // Server fields: { id, position:{x,y,z}, velocity:{x,y,z}, owner_id,
+    //                  weapon, lifetime } (see server/main.go Projectile).
+    if (Array.isArray(msg.projectiles)) {
+        // Fixed 1-frame dt for the synthesized streak endpoint. Matches
+        // the server's TICK_RATE = 60 Hz broadcast cadence so the streak
+        // is visually consistent with WASM-local projectile streaks.
+        const FRAME_DT = 1 / 60;
+        // Initial lifetime on spawn — MUST match `Lifetime: 2.0` in
+        // server/main.go's `case "fire"` handler (search "Lifetime: 2.0"
+        // in server/main.go and update BOTH sides together). We derive
+        // per-tick age as `initial - current_lifetime` so age grows
+        // monotonically to ttl and the projectile despawns exactly when
+        // the server drops it. If you change the server, change this
+        // constant too.
+        const INITIAL_LIFETIME = 2.0;
+        const peerProj = [];
+        for (const p of msg.projectiles) {
+            if (!p || !p.position || !p.velocity) continue;
+            const def = WEAPON_DEFS[p.weapon];
+            const color = (def && def.color) || [1.0, 0.9, 0.5];
+            peerProj.push({
+                id: p.id,
+                owner_id: p.owner_id,
+                weapon: p.weapon,
+                // Current position
+                x: p.position.x,
+                y: p.position.y,
+                z: p.position.z,
+                // Synthetic prev position: 1 frame ago along velocity.
+                // Server projectiles have no homing so velocity is
+                // constant across the projectile's lifetime — the streak
+                // endpoint therefore matches reality.
+                px: p.position.x - p.velocity.x * FRAME_DT,
+                py: p.position.y - p.velocity.y * FRAME_DT,
+                pz: p.position.z - p.velocity.z * FRAME_DT,
+                vx: p.velocity.x,
+                vy: p.velocity.y,
+                vz: p.velocity.z,
+                color: color,
+                // Lifetime-derived age. First tick (lifetime ≈ INITIAL_LIFETIME)
+                // → age ≈ 0 — fires the brief muzzle-flash effect.
+                age: Math.max(0, Math.min(INITIAL_LIFETIME, INITIAL_LIFETIME - (p.lifetime || 0))),
+                ttl: INITIAL_LIFETIME,
+            });
+        }
+        state.peerProjectiles = peerProj;
+    } else {
+        // Clear peer snapshot when the server omits (or races an empty) list
+        // so the renderer doesn't render stale projectiles across reconnects.
+        if (state.peerProjectiles && state.peerProjectiles.length) {
+            state.peerProjectiles = [];
         }
     }
 }

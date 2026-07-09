@@ -30,7 +30,10 @@ export const SHIPS = {
         helicopter: './assets/animated_helicopter.glb',
         bf109: './assets/bf_109_f-2_messerschmitt.glb',
         medical_drone: './assets/critical_medical_drone.glb',
-        heavy_spaceship: './assets/heavy_spacehip (1).glb',
+        // `heavy_spaceship` removed — the GLB was missing on disk and the
+        // fetch was returning 404 every page load. Re-add the entry below
+        // (and drop the asset back into /assets/) when you have a usable
+        // heavy bomber model.
     },
     available: [
         { key: 'f22_raptor', name: 'F-22 Raptor', desc: 'Stealth Fighter' },
@@ -38,7 +41,6 @@ export const SHIPS = {
         { key: 'corsair_plane', name: 'Corsair', desc: 'Prop Fighter' },
         { key: 'helicopter', name: 'Attack Heli', desc: 'Rotary Wing' },
         { key: 'medical_drone', name: 'Med Drone', desc: 'Support UAV' },
-        { key: 'heavy_spaceship', name: 'Heavy Ship', desc: 'Bomber' },
     ],
 };
 
@@ -187,7 +189,20 @@ export async function loadShipGLB(name, url) {
     }
 }
 
-export function renderShipModel(model, pos, color, proj, view) {
+/**
+ * Render a loaded GLB ship model. The model matrix now embeds the ship's
+ * actual rotation matrix (`R`, column-major 9-float Float32Array) so the
+ * ship visually banks/pitches/yaws with the player input. Identity rotation
+ * reproduces the previous hardcoded orientation, so the default case is a
+ * drop-in render.
+ *
+ * Geometry layout (column-major 4×4 mm):
+ *   col 0 = R * base_col0 * scale = R * [0, 0, -1]^T * s
+ *   col 1 = R * base_col1 * scale = R * [0, 1,  0]^T * s
+ *   col 2 = R * base_col2 * scale = R * [1, 0,  0]^T * s
+ *   col 3 = pos
+ */
+export function renderShipModel(model, pos, color, proj, view, rotation) {
     if (!model || !ARENA.program) return;
     const n = model.vertexCount;
     const cols = n * 3 <= _tmpCols.length ? _tmpCols : new Float32Array(n * 3);
@@ -196,8 +211,16 @@ export function renderShipModel(model, pos, color, proj, view) {
     gl.bufferSubData(gl.ARRAY_BUFFER, 0, cols, 0, n * 3);
 
     const s = model.unitScale || 2.5;
+    const R = rotation || (new Float32Array([1, 0, 0,  0, 1, 0,  0, 0, 1]));
+    // With identity R:
+    //   col0 = [-R[6], -R[7], -R[8]] * s = [0, 0, -s]      ✓ legacy
+    //   col1 = [ R[3],  R[4],  R[5]] * s = [0, s,  0]      ✓ legacy
+    //   col2 = [ R[0],  R[1],  R[2]] * s = [s, 0,  0]      ✓ legacy
     const mm = new Float32Array([
-        0, 0, -s, 0,  0, s, 0, 0,  s, 0, 0, 0,  pos[0], pos[1], pos[2], 1
+        -R[6]*s, -R[7]*s, -R[8]*s, 0,
+         R[3]*s,  R[4]*s,  R[5]*s, 0,
+         R[0]*s,  R[1]*s,  R[2]*s, 0,
+         pos[0],  pos[1],  pos[2],  1,
     ]);
     const mv = mat4Multiply(view, mm);
     const mvp = mat4Multiply(proj, mv);
