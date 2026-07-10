@@ -6,6 +6,7 @@ import { mat4Multiply, perspective, lookAt } from './math.js';
 import { canvas, gl } from './dom.js';
 import { state } from './state.js';
 import { ARENA, renderArena } from './arena.js';
+import { renderBoundaries } from './boundaries.js';
 import { SHIPS, renderShipModel as _renderShipModel } from './ships.js';
 
 // ─── Pre-allocated reusable temporaries (avoid GC in render loop) ──
@@ -264,18 +265,49 @@ export function initWebGL() {
         const proj = perspective(Math.PI / 3, aspect, 0.1, 5000.0);
 
         // ─── Camera ─────────────────────────────────────────
-        let eye, center;
+        let eye, center, up = [0, 1, 0];
         if (state.running && state.engine) {
             try {
                 const shipData = JSON.parse(state.engine.get_ship_positions());
                 const p1 = shipData.find(s => s.id === 'player_1');
                 if (p1) {
-                    center = [p1.x, p1.y, p1.z];
-                    eye = [
-                        center[0] + Math.sin(scene.angle) * 15,
-                        center[1] + 8,
-                        center[2] + Math.cos(scene.angle) * 15
-                    ];
+                    if (state.viewMode === 'first') {
+                        // ── Cockpit first-person camera ──────────
+                        // Camera sits at the pilot's eye position inside the
+                        // ship, looking forward along the ship's nose.
+                        const R = p1.transform || _defaultShipRot;
+                        // Ship-local forward = -Z, rotated by R:
+                        //   world forward = R * (0, 0, -1) = (-R[6], -R[7], -R[8])
+                        const fx = -R[6], fy = -R[7], fz = -R[8];
+                        // Ship-local up = +Y, rotated by R:
+                        //   world up = R * (0, 1, 0) = (R[3], R[4], R[5])
+                        const ux = R[3], uy = R[4], uz = R[5];
+                        // Pilot eye position: slightly above ship center + slightly forward
+                        const cockpitOffsetY = 1.8;
+                        const cockpitOffsetZ = 2.5; // forward offset
+                        eye = [
+                            p1.x + fx * cockpitOffsetZ,
+                            p1.y + cockpitOffsetY,
+                            p1.z + fz * cockpitOffsetZ,
+                        ];
+                        // Look far forward along ship's nose
+                        const lookDist = 500;
+                        center = [
+                            eye[0] + fx * lookDist,
+                            eye[1] + fy * lookDist,
+                            eye[2] + fz * lookDist,
+                        ];
+                        // Use the ship's actual up vector for full 6DOF roll
+                        up = [ux, uy, uz];
+                    } else {
+                        // ── Third-person chase camera ─────────────
+                        center = [p1.x, p1.y, p1.z];
+                        eye = [
+                            center[0] + Math.sin(scene.angle) * 15,
+                            center[1] + 8,
+                            center[2] + Math.cos(scene.angle) * 15
+                        ];
+                    }
                 } else {
                     center = [0, 0, 0];
                     eye = [Math.sin(scene.angle) * scene.scale * 10, scene.scale * 5, Math.cos(scene.angle) * scene.scale * 10];
@@ -289,7 +321,7 @@ export function initWebGL() {
             eye = [Math.sin(scene.angle) * 200, 120, Math.cos(scene.angle) * 200];
         }
 
-        const view = lookAt(eye, center, [0, 1, 0]);
+        const view = lookAt(eye, center, up);
 
         // Apply arena animation offset to view matrix
         let animView = view;
@@ -313,6 +345,9 @@ export function initWebGL() {
             gl.drawArrays(gl.LINES, 0, _vertCount);
             gl.bindVertexArray(null);
         }
+
+        // ─── Render arena boundaries (wireframe box) ───────
+        renderBoundaries(view, proj);
 
         // ─── Render ships ───────────────────────────────────
         if (state.engine) {
@@ -375,6 +410,8 @@ export function initWebGL() {
                     const isEnemy = ship.id === 'enemy_apex';
                     if (!isP1 && !isP2 && !isEnemy) continue;
                     if (isP2 && state.gameMode !== 'pvp') continue;
+                    // Skip rendering player's own ship in first-person cockpit view
+                    if (isP1 && state.viewMode === 'first') continue;
 
                     const modelName = SHIPS.assignments[ship.id];
                     const model = modelName ? SHIPS.models[modelName] : null;

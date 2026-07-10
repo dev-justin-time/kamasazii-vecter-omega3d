@@ -21,6 +21,9 @@ import { syncWeaponsFromEngine } from './weapon-select.js';
 import { startRhaiHotReload } from './hot-reload.js';
 import { analytics, EventType } from './analytics.js';
 import { dbg } from './dbg.js';
+import { initRadar, updateRadar, isRadarReady } from './radar.js';
+import { initBoundaries, renderBoundaries, enforceBoundaries, updateBoundaryWarning } from './boundaries.js';
+import { initKillFeed, checkKills, fullReset } from './killfeed.js';
 
 // ─── Boot ─────────────────────────────────────────────────────
 
@@ -71,30 +74,18 @@ async function init() {
         startRhaiHotReload(engine);
     }
 
-    // Restore persisted loadout
+    // Restore persisted mode only (UI elements for loadout were removed)
     const saved = await loadLoadout();
-    if (saved) {
-        if (saved.player_1 && SHIPS.available.some(s => s.key === saved.player_1)) {
-            SHIPS.assignments.player_1 = saved.player_1;
-            if (elements.loadoutNameP1) {
-                const entry = SHIPS.available.find(s => s.key === saved.player_1);
-                if (entry) { elements.loadoutNameP1.textContent = entry.name; elements.loadoutDescP1.textContent = entry.desc; }
-            }
-        }
-        if (saved.player_2 && SHIPS.available.some(s => s.key === saved.player_2)) {
-            SHIPS.assignments.player_2 = saved.player_2;
-            if (elements.loadoutNameP2) {
-                const entry = SHIPS.available.find(s => s.key === saved.player_2);
-                if (entry) { elements.loadoutNameP2.textContent = entry.name; elements.loadoutDescP2.textContent = entry.desc; }
-            }
-        }
-        if (saved.mode) setGameMode(saved.mode);
-    }
+    if (saved && saved.mode) setGameMode(saved.mode);
 
-    // Done loading
+    // Initialize radar, boundaries, and kill feed after WebGL is ready
+    initRadar('radar-container');
+    initBoundaries();
+    initKillFeed();
+
+    // Done loading — auto-launch straight into dogfight
     elements.loading.style.display = 'none';
-    elements.enterBtn.disabled = false;
-    elements.enterBtn.textContent = 'LAUNCH MISSION';
+    _launchGame();
 
     requestAnimationFrame(gameLoop);
 }
@@ -192,6 +183,18 @@ function fixedUpdate(dt) {
                     state.p2.glitchReady = !!p2Ship.glitch_ready;
                 }
             }
+            // ── Arena boundary enforcement ────────────────────
+            enforceBoundaries(shipData, dt);
+            // ── Kill feed detection ───────────────────────────
+            checkKills(shipData, dt);
+            // ── Radar update ──────────────────────────────────
+            if (isRadarReady()) {
+                let projData = [];
+                try { projData = JSON.parse(state.engine.get_projectiles()); } catch (_) {}
+                updateRadar(shipData, projData);
+            }
+            // ── Cockpit instruments (reuse parsed shipData) ───
+            updateCockpitOverlay(shipData);
         } catch (_) {}
     }
 
@@ -247,6 +250,10 @@ function fixedUpdate(dt) {
 
     // ── Update HUD ────────────────────────────────────────────
     updateHUD();
+    // ── Cockpit overlay + crosshair toggle ──────────
+    updateCockpitOverlay();
+    // ── Boundary warning overlay ────────────────────
+    updateBoundaryWarning(dt);
 
     // ── PvP HUD ───────────────────────────────────────────────
     if (state.gameMode === 'pvp') {
@@ -264,10 +271,7 @@ function fixedUpdate(dt) {
 function setGameMode(mode) {
     state.gameMode = mode;
     if (elements.modeIndicator) elements.modeIndicator.textContent = mode.toUpperCase();
-    if (elements.modePvai) elements.modePvai.classList.toggle('active', mode === 'pvai');
-    if (elements.modePvp) elements.modePvp.classList.toggle('active', mode === 'pvp');
     if (elements.pvpStatus) elements.pvpStatus.classList.toggle('hidden', mode !== 'pvp');
-    if (elements.loadoutSlot2Label) elements.loadoutSlot2Label.textContent = mode === 'pvp' ? 'P2' : 'AI';
     if (mode === 'pvp') {
         SHIPS.assignments.player_2 = SHIPS.available[loadoutIdx.player_2]?.key || 'corsair_plane';
     } else {
@@ -276,15 +280,13 @@ function setGameMode(mode) {
     saveLoadout({ player_1: SHIPS.assignments.player_1, player_2: SHIPS.assignments.player_2, mode });
 }
 
-// ─── Event Listeners ──────────────────────────────────────────
+// ─── Launch Game (auto-starts on load — no briefing screen) ─────────────
 
-elements.enterBtn.addEventListener('click', () => {
+function _launchGame() {
     state.running = true;
-    elements.briefing.style.display = 'none';
     if (state.engine) {
         const mode = state.gameMode === 'pvp' ? 'pvp' : 'pvai';
         state.engine.reset_ships(mode);
-        // Analytics: track ship spawns (WASM reset_ships is synchronous)
         try {
             const ships = JSON.parse(state.engine.get_ship_positions());
             for (const s of ships) {
@@ -293,15 +295,23 @@ elements.enterBtn.addEventListener('click', () => {
             analytics.trackMissionStart(mode);
         } catch (_) {}
     }
+    fullReset();
     connectWebSocket();
-});
+}
 
-document.querySelectorAll('.mode-btn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const mode = btn.dataset.mode;
-        if (mode) setGameMode(mode);
-    });
+// ─── Event Listeners ─────────────────────────────────
+
+// Mode switching via keyboard — press M to toggle PvAI / PvP
+window.addEventListener('keydown', (e) => {
+    if (e.key === 'm' || e.key === 'M') {
+        if (!state.running) return;
+        e.preventDefault();
+        setGameMode(state.gameMode === 'pvai' ? 'pvp' : 'pvai');
+        if (state.engine) {
+            state.engine.reset_ships(state.gameMode === 'pvp' ? 'pvp' : 'pvai');
+        }
+        fullReset();
+    }
 });
 
 // ─── Resize ───────────────────────────────────────────────────
@@ -312,6 +322,18 @@ window.addEventListener('resize', () => {
         gl.viewport(0, 0, canvas.width, canvas.height);
     }
 });
+
+// ─── Cockpit overlay toggling ───────────────────────────────
+
+function updateCockpitOverlay(shipData) {
+    const cockpitEl = document.getElementById('cockpit-overlay');
+    const crosshairEl = document.getElementById('crosshair');
+    // Always in first-person view now — cockpit image IS the plane
+    const showCockpit = state.running;
+
+    if (cockpitEl) cockpitEl.classList.toggle('cockpit-visible', showCockpit);
+    if (crosshairEl) crosshairEl.classList.toggle('crosshair-visible', showCockpit);
+}
 
 // ─── Expose globals for star_sparrow_builder.js ───────────────
 if (gl) window.__SS_gl = gl;

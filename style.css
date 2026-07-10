@@ -55,12 +55,14 @@ html, body {
 
 #hud {
     position: fixed;
-    top: 0;
-    left: 0;
+    top: -55px;
+    left: -121px;
     width: 100%;
     height: 100%;
     pointer-events: none;
     z-index: 10;
+    transform-origin: top left;
+    transform: scale(min(calc(100vw / 1920), calc(100vh / 1080)));
 }
 
 /* Top-left: Ship status */
@@ -1227,3 +1229,315 @@ html, body {
  * (specificity 100) so the badge starts hidden.  JS flips .style.display
  * at runtime to override when errors appear. */
 #rhai-error-badge.rhai-error-none { display: none; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Radar / Tactical Minimap
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#radar-container {
+    position: absolute;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(calc(-50% + 120px));
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 240, 255, 0.15);
+    border-radius: 6px;
+    padding: 4px;
+    backdrop-filter: blur(8px);
+    z-index: 10;
+}
+
+#radar-container .radar-label {
+    color: var(--text-dim);
+    font-size: 7px;
+    text-align: center;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Kill Feed
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#kill-feed {
+    position: absolute;
+    top: 50%;
+    right: 20px;
+    transform: translateY(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.kill-entry {
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 240, 255, 0.1);
+    border-radius: 3px;
+    padding: 4px 10px;
+    font-size: 11px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    transition: opacity 0.3s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Kill Scores
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#kill-scores {
+    position: absolute;
+    bottom: 20px;
+    left: 130px;
+    display: flex;
+    gap: 12px;
+    z-index: 10;
+}
+
+.kill-score-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--bg-panel);
+    border: 1px solid rgba(0, 240, 255, 0.12);
+    border-radius: 4px;
+    padding: 4px 10px;
+    backdrop-filter: blur(8px);
+}
+
+.kill-score-label {
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+}
+
+.kill-score-label.p1 { color: var(--neon-green); }
+.kill-score-label.p2 { color: var(--neon-magenta); }
+
+.kill-score-val {
+    color: var(--text-primary);
+    font-size: 14px;
+    font-weight: 700;
+    min-width: 20px;
+    text-align: center;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Boundary Warning Overlay
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#boundary-warning {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 5;
+    visibility: hidden;
+    opacity: 0;
+    background: radial-gradient(ellipse at center, transparent 60%, rgba(255, 32, 40, 0.15) 100%);
+    border: 3px solid transparent;
+    transition: border-color 0.3s ease, opacity 0.3s ease;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Respawn Overlay
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#respawn-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--bg-panel);
+    border: 1px solid var(--danger);
+    border-radius: 6px;
+    padding: 16px 32px;
+    color: var(--danger);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-align: center;
+    z-index: 50;
+    visibility: hidden;
+    backdrop-filter: blur(12px);
+    box-shadow: 0 0 30px rgba(255, 32, 40, 0.3);
+    animation: respawn-pulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes respawn-pulse {
+    from { box-shadow: 0 0 20px rgba(255, 32, 40, 0.2); }
+    to   { box-shadow: 0 0 40px rgba(255, 32, 40, 0.5); }
+}
+
+@media (max-width: 768px) {
+    #radar-container { bottom: 30px; transform: translateX(calc(-50% + 80px)); }
+    #radar-container canvas { width: 120px !important; height: 120px !important; }
+    #kill-scores { bottom: 30px; left: 100px; }
+    #respawn-overlay { font-size: 16px; padding: 12px 24px; }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Cockpit Overlay — first-person view (the image IS the plane)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#cockpit-overlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 8;
+    display: none;
+    transform-origin: top left;
+    transform: scale(min(calc(100vw / 1920), calc(100vh / 1080)));
+}
+
+#cockpit-overlay.cockpit-visible {
+    display: block;
+}
+
+.cockpit-img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: fill;
+    pointer-events: none;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   Crosshair Reticle — centered aiming point
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#crosshair {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 0;
+    height: 0;
+    pointer-events: none;
+    z-index: 9;
+    display: none;
+}
+
+#crosshair.crosshair-visible {
+    display: block;
+}
+
+/* Outer ring */
+.reticle-ring-outer {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 40px;
+    height: 40px;
+    margin: -20px 0 0 -20px;
+    border: 1px solid rgba(0, 255, 102, 0.25);
+    border-radius: 50%;
+}
+
+/* Inner ring */
+.reticle-ring-inner {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 14px;
+    height: 14px;
+    margin: -7px 0 0 -7px;
+    border: 1px solid rgba(0, 255, 102, 0.15);
+    border-radius: 50%;
+}
+
+/* Center dot */
+.reticle-dot {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3px;
+    height: 3px;
+    margin: -1.5px 0 0 -1.5px;
+    background: var(--neon-green);
+    border-radius: 50%;
+    box-shadow: 0 0 6px rgba(0, 255, 102, 0.6), 0 0 12px rgba(0, 255, 102, 0.3);
+}
+
+/* Crosshair lines (don't cross center — clean sight picture) */
+.reticle-line {
+    position: absolute;
+    background: rgba(0, 255, 102, 0.3);
+}
+
+.reticle-line-t {
+    top: -28px;
+    left: 50%;
+    width: 1px;
+    height: 8px;
+    margin-left: -0.5px;
+}
+
+.reticle-line-b {
+    top: 20px;
+    left: 50%;
+    width: 1px;
+    height: 8px;
+    margin-left: -0.5px;
+}
+
+.reticle-line-l {
+    top: 50%;
+    left: -28px;
+    width: 8px;
+    height: 1px;
+    margin-top: -0.5px;
+}
+
+.reticle-line-r {
+    top: 50%;
+    left: 20px;
+    width: 8px;
+    height: 1px;
+    margin-top: -0.5px;
+}
+
+/* Range finder ticks */
+.reticle-tick {
+    position: absolute;
+    left: 50%;
+    width: 20px;
+    height: 1px;
+    background: rgba(0, 255, 102, 0.12);
+    margin-left: -10px;
+}
+
+.reticle-tick-t { top: -40px; }
+.reticle-tick-b { top: 40px; }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   View Mode Indicator
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+#view-mode-indicator {
+    position: absolute;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: rgba(0, 240, 255, 0.3);
+    font-size: 8px;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    z-index: 12;
+    transition: color 0.3s ease, text-shadow 0.3s ease;
+}
+
+#view-mode-indicator.view-flash {
+    color: var(--neon-cyan);
+    text-shadow: 0 0 10px rgba(0, 240, 255, 0.6);
+}

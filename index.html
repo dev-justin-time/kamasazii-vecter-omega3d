@@ -22,65 +22,11 @@
         <div class="loading-text">Initializing Vector Core...</div>
     </div>
 
-    <!-- ═══ Pre-Game Briefing Overlay ═══ -->
-    <div id="briefing-overlay">
-        <h1>
-            <span class="cyan">VECTOR</span>
-            <span class="magenta">STRIKE</span>
-            <span class="orange">: OMNI</span>
-        </h1>
-        <div class="subtitle">Air Superiority — Sector Omega</div>
-        <div class="briefing-text" id="briefing-text">
-            Connecting to Puter AI to generate mission parameters...
-        </div>
-
-        <!-- ═══ Mode Selector ═══ -->
-        <div class="mode-selector">
-            <div class="mode-selector-label">MISSION TYPE</div>
-            <div class="mode-buttons">
-                <button class="mode-btn active" data-mode="pvai" id="mode-pvai" aria-label="Select PvAI mode — Dogfight Neural AI">
-                    <span class="mode-icon">⚔️</span>
-                    <span class="mode-title">PvAI</span>
-                    <span class="mode-desc">Dogfight Neural AI</span>
-                </button>
-                <button class="mode-btn" data-mode="pvp" id="mode-pvp" aria-label="Select PvP mode — Local Dual Player">
-                    <span class="mode-icon">👥</span>
-                    <span class="mode-title">PvP</span>
-                    <span class="mode-desc">Local Dual</span>
-                </button>
-            </div>
-        </div>
-
-
-        <!-- ═══ Ship Loadout Selector ═══ -->
-        <div class="loadout-selector">
-            <div class="loadout-slots">
-                <div class="loadout-slot" data-slot="player_1">
-                    <span class="loadout-slot-label">P1</span>
-                    <button class="loadout-arrow loadout-prev" data-slot="player_1" aria-label="Previous">◀</button>
-                    <span class="loadout-name" id="loadout-name-player_1">F-22 Raptor</span>
-                    <button class="loadout-arrow loadout-next" data-slot="player_1" aria-label="Next">▶</button>
-                    <span class="loadout-desc" id="loadout-desc-player_1">Stealth Fighter</span>
-                </div>
-                <div class="loadout-slot" data-slot="player_2">
-                    <span class="loadout-slot-label" id="loadout-slot2-label">P2</span>
-                    <button class="loadout-arrow loadout-prev" data-slot="player_2" aria-label="Previous">◀</button>
-                    <span class="loadout-name" id="loadout-name-player_2">Corsair</span>
-                    <button class="loadout-arrow loadout-next" data-slot="player_2" aria-label="Next">▶</button>
-                    <span class="loadout-desc" id="loadout-desc-player_2">Prop Fighter</span>
-                </div>
-            </div>
-            <div class="loadout-sync-indicator" id="loadout-sync-indicator">
-                <span class="sync-icon" id="sync-icon">&#9729;</span>
-                <span class="sync-text" id="sync-text">Ready</span>
-            </div>
-        </div>
-
-        <button class="enter-btn" id="enter-btn" disabled aria-label="Enter the arena">INITIALIZING...</button>
-    </div>
-
     <!-- ═══ CSS Grid Fallback (decorative) ═══ -->
     <div id="css-grid" aria-hidden="true"></div>
+
+    <!-- ═══ Boundary Warning Overlay (flashes when near arena edge) ═══ -->
+    <div id="boundary-warning" aria-hidden="true"></div>
 
     <!-- ═══ Scanline Effect (decorative) ═══ -->
     <div class="scanline" aria-hidden="true"></div>
@@ -146,6 +92,23 @@
             <div class="weapon-name" id="weapon-name">PLASMA BOLT</div>
             <div class="weapon-status" id="weapon-status">READY | Energy: 100%</div>
         </div>
+
+        <!-- Radar / Minimap (Bottom-Center, right of weapon) -->
+        <div id="radar-container">
+            <div class="radar-label">TAC-RADAR</div>
+        </div>
+
+        <!-- Kill Feed (Center-Right) -->
+        <div id="kill-feed"></div>
+
+        <!-- Kill Scores (near score) -->
+        <div id="kill-scores">
+            <div class="kill-score-row"><span class="kill-score-label p1">P1</span><span class="kill-score-val" id="kill-score-p1">0</span></div>
+            <div class="kill-score-row"><span class="kill-score-label p2">P2</span><span class="kill-score-val" id="kill-score-p2">0</span></div>
+        </div>
+
+        <!-- Respawn Overlay (center screen during death) -->
+        <div id="respawn-overlay">RESPAWN IN 3s</div>
 
         <!-- ═══ PvP: Player 2 Status (Left-Center, hidden by default) ═══ -->
         <div id="pvp-status" class="hidden">
@@ -214,6 +177,27 @@
         <div id="joystick-base" class="joystick-hidden">
             <div id="joystick-thumb"></div>
         </div>
+
+        <!-- ═══ Cockpit Overlay — first-person view (the image IS the plane) ═══ -->
+        <div id="cockpit-overlay">
+            <img class="cockpit-img" src="assets/image/hudcenterd.png" alt="Cockpit" />
+        </div>
+
+        <!-- ═══ Crosshair Reticle (centered aiming point, over HUD) ═══ -->
+        <div id="crosshair">
+            <div class="reticle-ring reticle-ring-outer"></div>
+            <div class="reticle-ring reticle-ring-inner"></div>
+            <div class="reticle-dot"></div>
+            <div class="reticle-line reticle-line-t"></div>
+            <div class="reticle-line reticle-line-b"></div>
+            <div class="reticle-line reticle-line-l"></div>
+            <div class="reticle-line reticle-line-r"></div>
+            <div class="reticle-tick reticle-tick-t"></div>
+            <div class="reticle-tick reticle-tick-b"></div>
+        </div>
+
+        <!-- ═══ View Mode Indicator ═══ -->
+        <div id="view-mode-indicator">CHASE</div>
     </div>
 
 <script type="module" src="./js/main.js?v=2026-07-09"></script>

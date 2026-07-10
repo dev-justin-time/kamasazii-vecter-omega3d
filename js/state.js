@@ -32,6 +32,8 @@ export const state = {
     p2: { health: 100, energy: 100, glitchReady: true },
     // Render function — set by renderer.js after WebGL init
     render: null,
+    // Camera view mode: 'third' (chase) or 'first' (cockpit)
+    viewMode: 'first',
 };
 
 // Initialize cooldown timers for all weapons

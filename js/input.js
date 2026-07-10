@@ -20,6 +20,19 @@ document.addEventListener('keydown', (e) => {
         return;
     }
 
+    // V — toggle cockpit / third-person view
+    if (k === 'v') {
+        e.preventDefault();
+        state.viewMode = state.viewMode === 'first' ? 'third' : 'first';
+        const indicator = document.getElementById('view-mode-indicator');
+        if (indicator) {
+            indicator.textContent = state.viewMode === 'first' ? 'COCKPIT' : 'CHASE';
+            indicator.classList.add('view-flash');
+            setTimeout(() => indicator.classList.remove('view-flash'), 600);
+        }
+        return;
+    }
+
     const num = parseInt(e.key);
     if (num >= 1 && num <= state.availableWeapons.length) {
         selectWeaponByIndex(num - 1);
